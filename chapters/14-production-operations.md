@@ -88,12 +88,12 @@ Kubernetes components have strict compatibility rules:
 
 | Component | Allowed Skew from API Server |
 |-----------|------------------------------|
-| kubelet | Up to 2 minor versions behind |
-| kube-proxy | Up to 2 minor versions behind |
+| kubelet | Up to 3 minor versions behind |
+| kube-proxy | Up to 3 minor versions behind |
 | controller-manager, scheduler | Up to 1 minor version behind |
 | kubectl | ±1 minor version |
 
-This means with an API server at v1.32, your kubelets can be v1.32, v1.31, or v1.30 — but not v1.29 or v1.33.
+This means with an API server at v1.32, your kubelets can be v1.32, v1.31, v1.30, or v1.29 — but not v1.28 or v1.33.
 
 ### Managed Kubernetes Upgrades
 
@@ -130,7 +130,7 @@ The certificate flags are required because etcd uses mutual TLS for all communic
 ### Verify the Backup
 
 ```bash
-ETCDCTL_API=3 etcdctl snapshot status /backup/etcd-snapshot.db --write-table
+ETCDCTL_API=3 etcdctl snapshot status /backup/etcd-snapshot.db --write-out=table
 ```
 
 This outputs a table showing hash, revision, total keys, and total size — confirming the backup is valid and complete.
@@ -567,7 +567,7 @@ kubectl exec -n kube-system etcd-prod-ops-lab-control-plane -- etcdctl \
 
 ```bash
 kubectl exec -n kube-system etcd-prod-ops-lab-control-plane -- etcdctl \
-  snapshot status /var/lib/etcd/backup.db --write-table
+  snapshot status /var/lib/etcd/backup.db --write-out=table
 ```
 
 You should see a table with hash, revision, total keys, and total size — confirming a valid backup.

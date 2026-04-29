@@ -53,7 +53,7 @@ spec:
 
 When you need tightly coupled processes, multi-container Pods make sense. The most common patterns:
 
-**Sidecar containers** — A helper that runs alongside the main application. Examples: log shippers, service mesh proxies, TLS termination. As of Kubernetes v1.29+, native sidecar containers (using `initContainers` with `restartPolicy: Always`) are a stable feature that ensures the sidecar starts before and stops after the main container.
+**Sidecar containers** — A helper that runs alongside the main application. Examples: log shippers, service mesh proxies, TLS termination. Native sidecar containers (using `initContainers` with `restartPolicy: Always`) were introduced as alpha in v1.28, beta in v1.29, and graduated to stable (GA) in v1.31. They ensure the sidecar starts before and stops after the main container.
 
 **Init containers** — Run to completion *before* the main containers start. Used for setup tasks: waiting for a database to be ready, populating a shared volume, running migrations.
 

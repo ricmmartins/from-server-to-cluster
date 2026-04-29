@@ -17,7 +17,7 @@ kubectl config set-context --current --namespace=dev   # Set default namespace f
 # Get cluster credentials (managed Kubernetes)
 az aks get-credentials --resource-group myRG --name myCluster       # AKS
 aws eks update-kubeconfig --name myCluster --region us-west-2       # EKS
-gcloud container clusters get-credentials myCluster --region us-c1  # GKE
+gcloud container clusters get-credentials myCluster --region us-central1  # GKE
 
 # Enable shell autocompletion
 source <(kubectl completion bash)                      # Bash (current session)

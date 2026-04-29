@@ -32,12 +32,13 @@ Linux provides several namespace types, each isolating a different system resour
 | **UTS** | `CLONE_NEWUTS` | Hostname and domain name | Like setting a different hostname per service |
 | **IPC** | `CLONE_NEWIPC` | Inter-process communication (shared memory, semaphores) | Like separate System V IPC domains |
 | **USER** | `CLONE_NEWUSER` | User and group IDs — root inside may not be root outside | Like having a separate `/etc/passwd` per process |
+| **cgroup** | `CLONE_NEWCGROUP` | cgroup root directory — the container sees its own cgroup hierarchy as root | Like a private view of `/sys/fs/cgroup/` |
 
 When Docker starts a container, it's calling the same kernel APIs that `unshare` and `clone()` use. The "magic" of containers is just namespace creation — something Linux has supported since kernel 2.6.24 (2008) and that matured with user namespaces in kernel 3.8 (2013).
 
 ### How Namespaces Work Together
 
-A typical container combines all six namespace types. The process inside:
+A typical container combines all seven namespace types. The process inside:
 - Sees itself as PID 1 (PID namespace)
 - Has its own `lo` and `eth0` interfaces (NET namespace)
 - Sees a completely different root filesystem (MNT namespace)
@@ -215,7 +216,7 @@ FROM ubuntu:24.04
 RUN apt-get update && apt-get install -y curl && rm -rf /var/lib/apt/lists/*
 COPY <<EOF /app/hello.sh
 #!/bin/bash
-echo "Hello from container! Hostname: \$(hostname), PID: \$\$"
+echo "Hello from container! Hostname: $(hostname), PID: $$"
 sleep infinity
 EOF
 RUN chmod +x /app/hello.sh

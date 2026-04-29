@@ -122,7 +122,7 @@ kube-proxy runs on every node and maintains network rules that enable the Kubern
 kube-proxy can operate in different modes:
 - **iptables mode** (common) — programs iptables rules for each Service; kernel-space packet forwarding
 - **IPVS mode** — uses the kernel's IP Virtual Server for better performance at scale
-- **nftables mode** (newer, from Kubernetes v1.31) — uses nftables as the backend, replacing iptables rules
+- **nftables mode** (newer, alpha from Kubernetes v1.29) — uses nftables as the backend, replacing iptables rules
 
 On a Linux server, you write iptables rules to route traffic. In Kubernetes, kube-proxy writes those rules for you based on the Services you define. The mechanism is identical — the automation layer is what's new.
 

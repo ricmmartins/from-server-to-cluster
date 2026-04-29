@@ -183,7 +183,7 @@ Now when a PVC references this StorageClass, the provisioner automatically creat
 
 This is like LVM thin provisioning on Linux — you define a pool and a policy, and logical volumes are carved out on demand as applications request them. Or think of it as the difference between the admin manually partitioning disks versus setting up LVM to auto-allocate from a volume group.
 
-Most Kubernetes distributions come with a default StorageClass. Kind uses `standard` backed by the Rancher local-path-provisioner. Cloud providers ship their own (Azure: `managed-premium`, AWS: `gp3`, GKE: `standard-rwo`). You can see what's available with:
+Most Kubernetes distributions come with a default StorageClass. Kind uses `standard` backed by the Rancher local-path-provisioner. Cloud providers ship their own (Azure: `managed-csi`, AWS: `gp3`, GKE: `standard-rwo`). You can see what's available with:
 
 ```bash
 kubectl get storageclass

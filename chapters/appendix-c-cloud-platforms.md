@@ -22,7 +22,7 @@ You still manage your workloads, node pools, networking policies, and applicatio
 | Feature | AKS (Azure) | EKS (AWS) | GKE (Google Cloud) |
 |---------|-------------|-----------|---------------------|
 | **CLI tool** | `az aks` | `eksctl` / `aws eks` | `gcloud container clusters` |
-| **Control plane cost** | Free | ~$73/month ($0.10/hr) | Standard: $0.10/hr; Autopilot: Free (pay per pod) |
+| **Control plane cost** | Free | ~$73/month ($0.10/hr) | Standard: $0.10/hr; Autopilot: $0.10/hr (compute billed per pod) |
 | **Default CNI** | Azure CNI Overlay | AWS VPC CNI | VPC-native (alias IPs) |
 | **Default load balancer** | Azure Load Balancer | AWS Network Load Balancer | Google Cloud Load Balancer |
 | **Managed Ingress** | Application Gateway for Containers | AWS ALB Ingress Controller | GKE Gateway Controller |
@@ -31,10 +31,10 @@ You still manage your workloads, node pools, networking policies, and applicatio
 | **Monitoring** | Azure Monitor Container Insights | Amazon CloudWatch Container Insights | Google Cloud Monitoring + GKE dashboards |
 | **Node OS options** | Azure Linux, Ubuntu | Amazon Linux 2023, Bottlerocket, Ubuntu | Container-Optimized OS, Ubuntu |
 | **Autopilot/serverless mode** | AKS Automatic | EKS Auto Mode | GKE Autopilot |
-| **Max pods per node (default)** | 250 (Azure CNI Overlay) | 110 (VPC CNI with prefix delegation) | 110 |
+| **Max pods per node (default)** | 250 (Azure CNI Overlay) | Varies by instance type (17–110; 110 with prefix delegation) | 110 |
 | **Version support policy** | N-2 (current + 2 prior minors) | 14 months standard + 12 months extended | 3 most recent minors |
 | **Supported K8s versions (mid-2025)** | 1.30 – 1.32 | 1.30 – 1.32 (1.29 on extended) | 1.30 – 1.32 |
-| **Cluster autoscaler** | KEDA + Cluster Autoscaler / Karpenter (preview) | Karpenter (recommended) / Cluster Autoscaler | GKE Autoscaler (built-in) / Karpenter (preview) |
+| **Cluster autoscaler** | Cluster Autoscaler / Karpenter (preview) | Karpenter (recommended) / Cluster Autoscaler | GKE Autoscaler (built-in) / Karpenter (preview) |
 
 ---
 
@@ -146,7 +146,7 @@ gcloud container clusters get-credentials myAutopilotCluster --region us-central
 | **CSI driver (block)** | Azure Disk CSI (`disk.csi.azure.com`) | EBS CSI (`ebs.csi.aws.com`) | Persistent Disk CSI (`pd.csi.storage.gke.io`) |
 | **CSI driver (file/NFS)** | Azure Files CSI (`file.csi.azure.com`) | EFS CSI (`efs.csi.aws.com`) | Filestore CSI (`filestore.csi.storage.gke.io`) |
 | **Default StorageClass** | `managed-csi` (Azure Disk LRS) | `gp3` (EBS gp3) | `standard-rwo` (PD balanced) |
-| **Premium storage class** | `managed-csi-premium` (Premium SSD v2) | `io2` (Provisioned IOPS) | `premium-rwo` (PD SSD) |
+| **Premium storage class** | `managed-csi-premium` (Premium SSD) | `io2` (Provisioned IOPS) | `premium-rwo` (PD SSD) |
 | **ReadWriteMany support** | Azure Files (SMB/NFS) | EFS (NFS) | Filestore (NFS) |
 | **Volume snapshots** | Supported (Azure Disk CSI) | Supported (EBS CSI) | Supported (PD CSI) |
 | **Volume expansion** | Online resize supported | Online resize supported | Online resize supported |

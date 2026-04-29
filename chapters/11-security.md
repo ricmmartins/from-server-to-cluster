@@ -128,7 +128,7 @@ Pod Security Admission defines three progressively restrictive profiles, called 
 |-------|---------------|----------|
 | **Privileged** | Anything goes — no restrictions | System-level infrastructure (CNI, logging agents) |
 | **Baseline** | Blocks known privilege escalations (hostNetwork, hostPID, privileged containers) | Most application workloads |
-| **Restricted** | Requires non-root, drops all capabilities, read-only root filesystem, seccomp profiles | Security-sensitive workloads |
+| **Restricted** | Requires non-root, drops all capabilities, disallows privilege escalation, seccomp profiles | Security-sensitive workloads |
 
 ### Three Enforcement Modes
 
