@@ -719,4 +719,4 @@ rm -rf kustomize-demo helm-kustomize-demo
 ---
 
 **Previous:** [Chapter 9 — Configuration and Secrets](09-configuration-and-secrets.md)
-**Next:** [Chapter 11 — Observability and Debugging](11-observability-and-debugging.md)
+**Next:** [Chapter 11 — Security](11-security.md)
