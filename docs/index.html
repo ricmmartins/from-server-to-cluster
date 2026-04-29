@@ -1,0 +1,707 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>From Server to Cluster — Kubernetes for Linux Professionals</title>
+    <meta name="description" content="A hands-on Kubernetes book for Linux professionals. Bridge your Linux skills to Kubernetes with real-world labs, architecture insights, and production war stories.">
+    <meta name="author" content="Ricardo Martins">
+    <meta name="keywords" content="kubernetes, linux, k8s, sysadmin, devops, cloud, containers, docker, ebook, tutorial">
+    <meta property="og:title" content="From Server to Cluster — Kubernetes for Linux Professionals">
+    <meta property="og:description" content="Everything you know about Linux still applies. You just need to see it from a higher altitude.">
+    <meta property="og:type" content="website">
+    <meta property="og:url" content="https://fromservertocluster.com">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-primary: #0f172a;
+            --bg-secondary: #1e293b;
+            --bg-card: #1e293b;
+            --text-primary: #f1f5f9;
+            --text-secondary: #94a3b8;
+            --accent: #38bdf8;
+            --accent-hover: #7dd3fc;
+            --accent-muted: rgba(56, 189, 248, 0.1);
+            --border: #334155;
+            --green: #4ade80;
+            --purple: #a78bfa;
+            --orange: #fb923c;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+            background-color: var(--bg-primary);
+            color: var(--text-primary);
+            line-height: 1.7;
+        }
+
+        .container {
+            max-width: 1100px;
+            margin: 0 auto;
+            padding: 0 24px;
+        }
+
+        /* Header */
+        header {
+            padding: 20px 0;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .header-inner {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .logo {
+            font-size: 1.1rem;
+            font-weight: 700;
+            color: var(--text-primary);
+            text-decoration: none;
+        }
+
+        .logo span {
+            color: var(--accent);
+        }
+
+        .header-links {
+            display: flex;
+            gap: 24px;
+        }
+
+        .header-links a {
+            color: var(--text-secondary);
+            text-decoration: none;
+            font-size: 0.9rem;
+            font-weight: 500;
+            transition: color 0.2s;
+        }
+
+        .header-links a:hover {
+            color: var(--accent);
+        }
+
+        /* Hero */
+        .hero {
+            padding: 80px 0 60px;
+            text-align: center;
+        }
+
+        .hero-badge {
+            display: inline-block;
+            background: var(--accent-muted);
+            color: var(--accent);
+            padding: 6px 16px;
+            border-radius: 20px;
+            font-size: 0.85rem;
+            font-weight: 600;
+            margin-bottom: 24px;
+            border: 1px solid rgba(56, 189, 248, 0.2);
+        }
+
+        .hero h1 {
+            font-size: 3.2rem;
+            font-weight: 800;
+            line-height: 1.15;
+            margin-bottom: 20px;
+            letter-spacing: -0.03em;
+        }
+
+        .hero h1 .accent {
+            color: var(--accent);
+        }
+
+        .hero p {
+            font-size: 1.2rem;
+            color: var(--text-secondary);
+            max-width: 680px;
+            margin: 0 auto 36px;
+            line-height: 1.7;
+        }
+
+        .hero-buttons {
+            display: flex;
+            gap: 16px;
+            justify-content: center;
+            flex-wrap: wrap;
+        }
+
+        .btn {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 14px 28px;
+            border-radius: 8px;
+            font-size: 1rem;
+            font-weight: 600;
+            text-decoration: none;
+            transition: all 0.2s;
+        }
+
+        .btn-primary {
+            background: var(--accent);
+            color: var(--bg-primary);
+        }
+
+        .btn-primary:hover {
+            background: var(--accent-hover);
+            transform: translateY(-1px);
+        }
+
+        .btn-secondary {
+            background: var(--bg-secondary);
+            color: var(--text-primary);
+            border: 1px solid var(--border);
+        }
+
+        .btn-secondary:hover {
+            border-color: var(--accent);
+            color: var(--accent);
+        }
+
+        /* Stats */
+        .stats {
+            display: flex;
+            justify-content: center;
+            gap: 48px;
+            padding: 40px 0;
+            border-top: 1px solid var(--border);
+            border-bottom: 1px solid var(--border);
+            margin: 0 0 60px;
+        }
+
+        .stat {
+            text-align: center;
+        }
+
+        .stat-value {
+            font-size: 2rem;
+            font-weight: 800;
+            color: var(--accent);
+        }
+
+        .stat-label {
+            font-size: 0.85rem;
+            color: var(--text-secondary);
+            margin-top: 4px;
+        }
+
+        /* Sections */
+        .section {
+            padding: 60px 0;
+        }
+
+        .section-title {
+            font-size: 2rem;
+            font-weight: 700;
+            margin-bottom: 12px;
+            letter-spacing: -0.02em;
+        }
+
+        .section-subtitle {
+            color: var(--text-secondary);
+            font-size: 1.05rem;
+            margin-bottom: 40px;
+            max-width: 640px;
+        }
+
+        /* Bridge Table */
+        .bridge-section {
+            background: var(--bg-secondary);
+            border-radius: 12px;
+            padding: 40px;
+            margin-bottom: 60px;
+            border: 1px solid var(--border);
+        }
+
+        .bridge-section h2 {
+            font-size: 1.5rem;
+            margin-bottom: 8px;
+        }
+
+        .bridge-section p {
+            color: var(--text-secondary);
+            margin-bottom: 24px;
+        }
+
+        .bridge-table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+
+        .bridge-table th {
+            text-align: left;
+            padding: 12px 16px;
+            font-size: 0.8rem;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            color: var(--text-secondary);
+            border-bottom: 1px solid var(--border);
+        }
+
+        .bridge-table td {
+            padding: 12px 16px;
+            border-bottom: 1px solid rgba(51, 65, 85, 0.5);
+            font-size: 0.95rem;
+        }
+
+        .bridge-table tr:last-child td {
+            border-bottom: none;
+        }
+
+        .bridge-table .linux {
+            color: var(--green);
+            font-family: 'Courier New', monospace;
+            font-size: 0.9rem;
+        }
+
+        .bridge-table .k8s {
+            color: var(--accent);
+            font-family: 'Courier New', monospace;
+            font-size: 0.9rem;
+        }
+
+        /* Chapters Grid */
+        .chapters-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+            gap: 16px;
+        }
+
+        .chapter-card {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            padding: 24px;
+            transition: all 0.2s;
+            text-decoration: none;
+            color: inherit;
+            display: block;
+        }
+
+        .chapter-card:hover {
+            border-color: var(--accent);
+            transform: translateY(-2px);
+        }
+
+        .chapter-number {
+            font-size: 0.75rem;
+            font-weight: 700;
+            color: var(--accent);
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
+            margin-bottom: 8px;
+        }
+
+        .chapter-card h3 {
+            font-size: 1.05rem;
+            font-weight: 600;
+            margin-bottom: 8px;
+        }
+
+        .chapter-card p {
+            font-size: 0.88rem;
+            color: var(--text-secondary);
+            line-height: 1.6;
+        }
+
+        .chapter-part {
+            grid-column: 1 / -1;
+            padding: 16px 0 4px;
+            font-size: 0.8rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
+            color: var(--purple);
+        }
+
+        /* Learning Path */
+        .path-section {
+            text-align: center;
+            padding: 60px 0;
+        }
+
+        .path-steps {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            gap: 20px;
+            flex-wrap: wrap;
+            margin-top: 32px;
+        }
+
+        .path-step {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            padding: 20px 28px;
+            text-decoration: none;
+            color: inherit;
+            transition: all 0.2s;
+            min-width: 200px;
+        }
+
+        .path-step:hover {
+            border-color: var(--accent);
+        }
+
+        .path-step.current {
+            border-color: var(--accent);
+            background: var(--accent-muted);
+        }
+
+        .path-step h4 {
+            font-size: 0.95rem;
+            font-weight: 600;
+            margin-bottom: 4px;
+        }
+
+        .path-step p {
+            font-size: 0.8rem;
+            color: var(--text-secondary);
+        }
+
+        .path-arrow {
+            font-size: 1.5rem;
+            color: var(--text-secondary);
+        }
+
+        /* Quote */
+        .quote-section {
+            text-align: center;
+            padding: 60px 0;
+            border-top: 1px solid var(--border);
+        }
+
+        .quote-section blockquote {
+            font-size: 1.4rem;
+            font-style: italic;
+            color: var(--text-secondary);
+            max-width: 700px;
+            margin: 0 auto;
+            line-height: 1.6;
+        }
+
+        /* Footer */
+        footer {
+            padding: 40px 0;
+            border-top: 1px solid var(--border);
+            text-align: center;
+        }
+
+        footer p {
+            color: var(--text-secondary);
+            font-size: 0.85rem;
+            margin-bottom: 8px;
+        }
+
+        footer a {
+            color: var(--text-secondary);
+            text-decoration: none;
+            transition: color 0.2s;
+        }
+
+        footer a:hover {
+            color: var(--accent);
+        }
+
+        /* Responsive */
+        @media (max-width: 768px) {
+            .hero h1 {
+                font-size: 2.2rem;
+            }
+
+            .hero p {
+                font-size: 1.05rem;
+            }
+
+            .stats {
+                flex-wrap: wrap;
+                gap: 24px;
+            }
+
+            .bridge-section {
+                padding: 24px;
+                overflow-x: auto;
+            }
+
+            .path-steps {
+                flex-direction: column;
+            }
+
+            .path-arrow {
+                transform: rotate(90deg);
+            }
+
+            .header-links {
+                gap: 16px;
+            }
+        }
+    </style>
+</head>
+<body>
+
+    <header>
+        <div class="container header-inner">
+            <a href="/" class="logo">From <span>Server</span> to Cluster</a>
+            <div class="header-links">
+                <a href="https://github.com/ricmmartins/from-server-to-cluster">GitHub</a>
+                <a href="#chapters">Chapters</a>
+                <a href="#path">Learning Path</a>
+            </div>
+        </div>
+    </header>
+
+    <main>
+        <section class="hero">
+            <div class="container">
+                <span class="hero-badge">Free &amp; Open Source</span>
+                <h1>From <span class="accent">Server</span> to Cluster</h1>
+                <p>A Kubernetes book for Linux professionals. Everything you know about Linux still applies — you just need to see it from a higher altitude. 15 chapters, hands-on labs, real-world war stories.</p>
+                <div class="hero-buttons">
+                    <a href="https://github.com/ricmmartins/from-server-to-cluster/blob/main/chapters/01-from-server-to-cluster.md" class="btn btn-primary">Start Reading</a>
+                    <a href="https://github.com/ricmmartins/from-server-to-cluster" class="btn btn-secondary">View on GitHub</a>
+                </div>
+            </div>
+        </section>
+
+        <div class="container">
+            <div class="stats">
+                <div class="stat">
+                    <div class="stat-value">15</div>
+                    <div class="stat-label">Chapters</div>
+                </div>
+                <div class="stat">
+                    <div class="stat-value">50+</div>
+                    <div class="stat-label">Linux-K8s Mappings</div>
+                </div>
+                <div class="stat">
+                    <div class="stat-value">15</div>
+                    <div class="stat-label">Hands-on Labs</div>
+                </div>
+                <div class="stat">
+                    <div class="stat-value">5</div>
+                    <div class="stat-label">War Stories</div>
+                </div>
+            </div>
+        </div>
+
+        <div class="container">
+            <div class="bridge-section">
+                <h2>The Linux-to-Kubernetes Bridge</h2>
+                <p>You already know more than you think. Every Kubernetes concept has a Linux ancestor.</p>
+                <table class="bridge-table">
+                    <thead>
+                        <tr>
+                            <th>What You Know (Linux)</th>
+                            <th>What You'll Learn (K8s)</th>
+                            <th>Chapter</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td class="linux">processes, fork, exec</td>
+                            <td class="k8s">Pods</td>
+                            <td>6</td>
+                        </tr>
+                        <tr>
+                            <td class="linux">systemd units, services</td>
+                            <td class="k8s">Deployments, DaemonSets</td>
+                            <td>6</td>
+                        </tr>
+                        <tr>
+                            <td class="linux">namespaces (unshare)</td>
+                            <td class="k8s">Containers, K8s Namespaces</td>
+                            <td>2, 4</td>
+                        </tr>
+                        <tr>
+                            <td class="linux">cgroups, ulimit</td>
+                            <td class="k8s">Resource requests/limits, QoS</td>
+                            <td>12</td>
+                        </tr>
+                        <tr>
+                            <td class="linux">iptables, nftables</td>
+                            <td class="k8s">Services, kube-proxy, NetworkPolicy</td>
+                            <td>7, 11</td>
+                        </tr>
+                        <tr>
+                            <td class="linux">/etc/fstab, mount, LVM</td>
+                            <td class="k8s">Volumes, PV, PVC, StorageClass</td>
+                            <td>8</td>
+                        </tr>
+                        <tr>
+                            <td class="linux">/etc/ config files, envvars</td>
+                            <td class="k8s">ConfigMaps, Secrets</td>
+                            <td>9</td>
+                        </tr>
+                        <tr>
+                            <td class="linux">users, groups, chmod, sudo</td>
+                            <td class="k8s">RBAC, ServiceAccounts, PSA</td>
+                            <td>11</td>
+                        </tr>
+                        <tr>
+                            <td class="linux">cron, at</td>
+                            <td class="k8s">CronJobs, Jobs</td>
+                            <td>6</td>
+                        </tr>
+                        <tr>
+                            <td class="linux">journalctl, syslog</td>
+                            <td class="k8s">kubectl logs, Prometheus, Grafana</td>
+                            <td>12, 13</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <section id="chapters" class="section">
+            <div class="container">
+                <h2 class="section-title">Chapters</h2>
+                <p class="section-subtitle">15 chapters that progressively bridge your Linux expertise to Kubernetes mastery.</p>
+                <div class="chapters-grid">
+                    <div class="chapter-part">Part I &mdash; Foundations</div>
+
+                    <a href="https://github.com/ricmmartins/from-server-to-cluster/blob/main/chapters/01-from-server-to-cluster.md" class="chapter-card">
+                        <div class="chapter-number">Chapter 01</div>
+                        <h3>From Server to Cluster</h3>
+                        <p>Why Kubernetes exists, what Linux pros already know, and the mental shift from servers to clusters.</p>
+                    </a>
+                    <a href="https://github.com/ricmmartins/from-server-to-cluster/blob/main/chapters/02-containers-demystified.md" class="chapter-card">
+                        <div class="chapter-number">Chapter 02</div>
+                        <h3>Containers Demystified</h3>
+                        <p>Linux namespaces, cgroups, images, and container runtimes — the foundation beneath Kubernetes.</p>
+                    </a>
+                    <a href="https://github.com/ricmmartins/from-server-to-cluster/blob/main/chapters/03-kubernetes-architecture.md" class="chapter-card">
+                        <div class="chapter-number">Chapter 03</div>
+                        <h3>Kubernetes Architecture</h3>
+                        <p>Control plane, worker nodes, etcd, API server, and scheduler — all through the Linux lens.</p>
+                    </a>
+                    <a href="https://github.com/ricmmartins/from-server-to-cluster/blob/main/chapters/04-how-kubernetes-thinks.md" class="chapter-card">
+                        <div class="chapter-number">Chapter 04</div>
+                        <h3>How Kubernetes Thinks</h3>
+                        <p>Desired state, reconciliation loops, controllers, labels, selectors, and scheduling fundamentals.</p>
+                    </a>
+                    <a href="https://github.com/ricmmartins/from-server-to-cluster/blob/main/chapters/05-your-first-cluster.md" class="chapter-card">
+                        <div class="chapter-number">Chapter 05</div>
+                        <h3>Your First Cluster</h3>
+                        <p>Kind setup, kubectl basics, kubeconfig, and exploring every component of your cluster.</p>
+                    </a>
+
+                    <div class="chapter-part">Part II &mdash; Core Concepts</div>
+
+                    <a href="https://github.com/ricmmartins/from-server-to-cluster/blob/main/chapters/06-pods-and-workloads.md" class="chapter-card">
+                        <div class="chapter-number">Chapter 06</div>
+                        <h3>Pods and Workloads</h3>
+                        <p>Pods, Deployments, ReplicaSets, DaemonSets, StatefulSets, Jobs, CronJobs, and Probes.</p>
+                    </a>
+                    <a href="https://github.com/ricmmartins/from-server-to-cluster/blob/main/chapters/07-networking.md" class="chapter-card">
+                        <div class="chapter-number">Chapter 07</div>
+                        <h3>Networking</h3>
+                        <p>Services, Ingress, Gateway API, and DNS — from iptables rules to kube-proxy magic.</p>
+                    </a>
+                    <a href="https://github.com/ricmmartins/from-server-to-cluster/blob/main/chapters/08-storage-and-persistence.md" class="chapter-card">
+                        <div class="chapter-number">Chapter 08</div>
+                        <h3>Storage and Persistence</h3>
+                        <p>Volumes, PersistentVolumes, PVCs, StorageClasses, and CSI drivers.</p>
+                    </a>
+                    <a href="https://github.com/ricmmartins/from-server-to-cluster/blob/main/chapters/09-configuration-and-secrets.md" class="chapter-card">
+                        <div class="chapter-number">Chapter 09</div>
+                        <h3>Configuration and Secrets</h3>
+                        <p>ConfigMaps, Secrets, environment variables — how applications consume configuration.</p>
+                    </a>
+                    <a href="https://github.com/ricmmartins/from-server-to-cluster/blob/main/chapters/10-packaging-and-delivery.md" class="chapter-card">
+                        <div class="chapter-number">Chapter 10</div>
+                        <h3>Packaging and Delivery</h3>
+                        <p>Helm charts, Kustomize overlays, and an introduction to GitOps workflows.</p>
+                    </a>
+
+                    <div class="chapter-part">Part III &mdash; Operations</div>
+
+                    <a href="https://github.com/ricmmartins/from-server-to-cluster/blob/main/chapters/11-security.md" class="chapter-card">
+                        <div class="chapter-number">Chapter 11</div>
+                        <h3>Security</h3>
+                        <p>RBAC, Pod Security Admission, NetworkPolicy, Secrets protection, and encryption at rest.</p>
+                    </a>
+                    <a href="https://github.com/ricmmartins/from-server-to-cluster/blob/main/chapters/12-scaling-and-observability.md" class="chapter-card">
+                        <div class="chapter-number">Chapter 12</div>
+                        <h3>Scaling and Observability</h3>
+                        <p>HPA, VPA, resource management, QoS classes, Prometheus, and Grafana dashboards.</p>
+                    </a>
+                    <a href="https://github.com/ricmmartins/from-server-to-cluster/blob/main/chapters/13-troubleshooting.md" class="chapter-card">
+                        <div class="chapter-number">Chapter 13</div>
+                        <h3>Troubleshooting</h3>
+                        <p>5 real-world scenarios with symptoms, diagnosis, and fixes using kubectl debug, events, and logs.</p>
+                    </a>
+                    <a href="https://github.com/ricmmartins/from-server-to-cluster/blob/main/chapters/14-production-operations.md" class="chapter-card">
+                        <div class="chapter-number">Chapter 14</div>
+                        <h3>Production Operations</h3>
+                        <p>Cluster upgrades, etcd backup and restore, disaster recovery, CRDs, and Operators.</p>
+                    </a>
+                    <a href="https://github.com/ricmmartins/from-server-to-cluster/blob/main/chapters/15-next-steps.md" class="chapter-card">
+                        <div class="chapter-number">Chapter 15</div>
+                        <h3>Next Steps</h3>
+                        <p>CKA, CKAD, CKS, and KCNA certifications, career paths, and community resources.</p>
+                    </a>
+                </div>
+            </div>
+        </section>
+
+        <section id="path" class="path-section">
+            <div class="container">
+                <h2 class="section-title">The Learning Path</h2>
+                <p class="section-subtitle" style="margin: 0 auto 12px;">A progressive journey from Linux fundamentals to AI-powered infrastructure.</p>
+                <div class="path-steps">
+                    <a href="https://linuxhackathon.com" class="path-step">
+                        <h4>Linux Hackathon</h4>
+                        <p>20 hands-on challenges</p>
+                    </a>
+                    <span class="path-arrow">&rarr;</span>
+                    <div class="path-step current">
+                        <h4>This Book</h4>
+                        <p>Linux to K8s bridge</p>
+                    </div>
+                    <span class="path-arrow">&rarr;</span>
+                    <a href="https://k8shackathon.com" class="path-step">
+                        <h4>K8s Hackathon</h4>
+                        <p>20 hands-on challenges</p>
+                    </a>
+                    <span class="path-arrow">&rarr;</span>
+                    <a href="https://ai4infra.com" class="path-step">
+                        <h4>AI for Infra</h4>
+                        <p>AI + Cloud ebook</p>
+                    </a>
+                </div>
+            </div>
+        </section>
+
+        <section class="quote-section">
+            <div class="container">
+                <blockquote>"You don't need to forget everything you know about Linux to learn Kubernetes. You need to see how it evolves."</blockquote>
+            </div>
+        </section>
+    </main>
+
+    <footer>
+        <div class="container">
+            <p>
+                <a href="https://github.com/ricmmartins/from-server-to-cluster">GitHub</a> &middot;
+                <a href="https://rmmartins.com">Blog (EN)</a> &middot;
+                <a href="https://ricardomartins.com.br">Blog (PT-BR)</a> &middot;
+                <a href="https://linuxhackathon.com">Linux Hackathon</a> &middot;
+                <a href="https://k8shackathon.com">K8s Hackathon</a> &middot;
+                <a href="https://ai4infra.com">AI for Infra</a>
+            </p>
+            <p>By <a href="https://github.com/ricmmartins">Ricardo Martins</a> &middot; Licensed under CC BY-NC-SA 4.0</p>
+        </div>
+    </footer>
+
+</body>
+</html>
