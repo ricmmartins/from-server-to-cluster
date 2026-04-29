@@ -676,5 +676,5 @@ rm -f emptydir-pod.yaml pv-demo.yaml pv-writer.yaml dynamic-pvc.yaml statefulset
 
 ---
 
-**Previous:** [Chapter 7 — Networking and Services](07-networking-and-services.md)
+**Previous:** [Chapter 7 — Networking](07-networking.md)
 **Next:** [Chapter 9 — Configuration and Secrets](09-configuration-and-secrets.md)

@@ -694,4 +694,4 @@ kind delete cluster --name scaling-lab
 ---
 
 **Previous:** [Chapter 11 — Security](11-security.md)
-**Next:** [Chapter 13 — Production Readiness](13-production-readiness.md)
+**Next:** [Chapter 13 — Troubleshooting](13-troubleshooting.md)

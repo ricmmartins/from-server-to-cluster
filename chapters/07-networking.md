@@ -670,4 +670,4 @@ rm -f ingress.yaml
 ---
 
 **Previous:** [Chapter 6 — Pods and Workloads](06-pods-and-workloads.md)
-**Next:** [Chapter 8 — Storage](08-storage.md)
+**Next:** [Chapter 8 — Storage and Persistence](08-storage-and-persistence.md)
