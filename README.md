@@ -72,7 +72,7 @@ Linux FUNdamentals    --->  Kubernetes Hackathon  ---> AI for Infrastructure
 | Resource | Format | Focus |
 |----------|--------|-------|
 | [Linux Hackathon](https://linuxhackathon.com) | Hands-on challenges | Linux fundamentals (20 challenges) |
-| **This Book** | Narrative + labs | Conceptual bridge: Linux to Kubernetes |
+| [**This Book**](https://fromservertocluster.com) | Narrative + labs | Conceptual bridge: Linux to Kubernetes |
 | [K8s Hackathon](https://k8shackathon.com) | Hands-on challenges | Kubernetes practice (20 challenges) |
 | [AI for Infra](https://ai4infra.com) | Ebook | AI applied to infrastructure |
 
