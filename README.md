@@ -58,15 +58,18 @@ Every chapter opens with what you already know, maps it to Kubernetes, and hones
 
 This book is part of a progressive learning path:
 
-```
-linuxhackathon.com          k8shackathon.com           ai4infra.com
-Linux FUNdamentals    --->  Kubernetes Hackathon  ---> AI for Infrastructure
-(20 challenges)             (20 challenges)            (AI + Cloud)
-        \                        |                      /
-         \                       |                     /
-          `----> This Book <----'                    /
-           "From Server to Cluster"                 /
-            (The WHY behind the WHAT)   -----------'
+```mermaid
+flowchart LR
+    A["🐧 Linux FUNdamentals<br/>(20 challenges)"] -->|next| B["☸️ Kubernetes Hackathon<br/>(20 challenges)"]
+    B -->|next| C["🤖 AI for Infrastructure<br/>(AI + Cloud)"]
+    A -.->|companion reading| D["📖 This Book<br/><b>From Server to Cluster</b><br/><i>The WHY behind the WHAT</i>"]
+    B -.->|companion reading| D
+    C -.->|companion reading| D
+
+    click A "https://linuxhackathon.com"
+    click B "https://k8shackathon.com"
+    click C "https://ai4infra.com"
+    click D "https://fromservertocluster.com"
 ```
 
 | Resource | Format | Focus |
