@@ -59,16 +59,17 @@ Every chapter opens with what you already know, maps it to Kubernetes, and hones
 This book is part of a progressive learning path:
 
 ```mermaid
-flowchart LR
-    A["🐧 <b>Linux FUNdamentals</b><br/>20 hands-on challenges<br/><i>linuxhackathon.com</i>"]
-    B["☸️ <b>Kubernetes Hackathon</b><br/>20 hands-on challenges<br/><i>k8shackathon.com</i>"]
-    C["🤖 <b>AI for Infrastructure</b><br/>AI + Cloud<br/><i>ai4infra.com</i>"]
-    D["📖 <b>From Server to Cluster</b><br/>The WHY behind the WHAT<br/><i>fromservertocluster.com</i>"]
+flowchart TB
+    subgraph journey["🚀 Progressive Learning Path"]
+        direction LR
+        A["🐧 <b>Linux FUNdamentals</b><br/>20 hands-on challenges<br/><i>linuxhackathon.com</i>"] ==> B["☸️ <b>Kubernetes Hackathon</b><br/>20 hands-on challenges<br/><i>k8shackathon.com</i>"] ==> C["🤖 <b>AI for Infrastructure</b><br/>AI + Cloud<br/><i>ai4infra.com</i>"]
+    end
 
-    A ==> B ==> C
-    A -.-> D
-    B -.-> D
-    C -.-> D
+    A -.->|companion reading| D
+    B -.->|companion reading| D
+    C -.->|companion reading| D
+
+    D["📖 <b>From Server to Cluster</b><br/>The WHY behind the WHAT<br/><i>fromservertocluster.com</i>"]
 
     classDef challenge fill:#2b5ea7,stroke:#1e4a8a,color:#fff,stroke-width:2px
     classDef book fill:#1a7f37,stroke:#116329,color:#fff,stroke-width:3px
