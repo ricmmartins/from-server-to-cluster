@@ -1,53 +1,53 @@
-# Chapter 10: Packaging and Delivery
+# Capítulo 10: Empacotamento e Entrega
 
-*"Nobody wants to manage a thousand YAML files by hand. That's not DevOps — that's suffering."*
-
----
-
-## From Artisanal YAML to Repeatable Deployments
-
-On a Linux server, you don't install software by manually copying binaries and writing config files from scratch. You use a package manager — `apt install nginx`, `dnf install postgresql`, `brew install redis`. The package manager handles dependencies, versioning, upgrades, rollbacks, and uninstalls. It's civilized. It's repeatable. It's how professionals work.
-
-Now look at what we've been doing in Kubernetes for the last nine chapters: writing individual YAML files by hand, applying them one at a time with `kubectl apply -f`. For a single service with a Deployment, a Service, a ConfigMap, and a Secret, that's four YAML files. Add an Ingress, a PVC, a ServiceAccount, and RBAC rules, and you're up to eight. Multiply by three environments (dev, staging, production) and you have twenty-four files to manage. For one service.
-
-In a real microservices architecture with dozens of services, you're looking at hundreds of YAML files. Different environments need different replica counts, different image tags, different resource limits, different ConfigMap values. Copying and editing YAML files across directories is the Kubernetes equivalent of managing servers by SSH'ing in and editing config files by hand — it works until it doesn't, and then it fails spectacularly.
-
-This chapter introduces the tools that solve this problem: **Helm** (the package manager), **Kustomize** (the patch engine), and the concept of **GitOps** (the deployment model). Together, they transform Kubernetes from "artisanal YAML craft" into a repeatable, auditable, production-grade delivery pipeline.
+*"Ninguém quer gerenciar mil arquivos YAML manualmente. Isso não é DevOps — isso é sofrimento."*
 
 ---
 
-## Helm — The Package Manager for Kubernetes
+## De YAML Artesanal a Deploys Repetíveis
 
-Helm is to Kubernetes what `apt` is to Debian or `dnf` is to Fedora. It packages multiple Kubernetes resources into a single, versioned, configurable unit called a **chart**.
+Em um servidor Linux, você não instala software copiando binários manualmente e escrevendo arquivos de configuração do zero. Você usa um gerenciador de pacotes — `apt install nginx`, `dnf install postgresql`, `brew install redis`. O gerenciador de pacotes cuida de dependências, versionamento, upgrades, rollbacks e desinstalações. É civilizado. É repetível. É como profissionais trabalham.
 
-### Core Concepts
+Agora olhe o que fizemos no Kubernetes nos últimos nove capítulos: escrever arquivos YAML individuais à mão, aplicá-los um por vez com `kubectl apply -f`. Para um único serviço com um Deployment, um Service, um ConfigMap e um Secret, são quatro arquivos YAML. Adicione um Ingress, um PVC, uma ServiceAccount e regras RBAC, e você tem oito. Multiplique por três ambientes (dev, staging, produção) e terá vinte e quatro arquivos para gerenciar. Para um serviço.
 
-| Helm Term | Linux Equivalent | What It Is |
+Em uma arquitetura real de microsserviços com dezenas de serviços, estamos falando de centenas de arquivos YAML. Ambientes diferentes precisam de contagens de réplicas diferentes, tags de imagem diferentes, limites de recursos diferentes, valores de ConfigMap diferentes. Copiar e editar arquivos YAML entre diretórios é o equivalente no Kubernetes a gerenciar servidores fazendo SSH e editando arquivos de configuração manualmente — funciona até que não funciona mais, e então falha espetacularmente.
+
+Este capítulo apresenta as ferramentas que resolvem esse problema: **Helm** (o gerenciador de pacotes), **Kustomize** (o motor de patches) e o conceito de **GitOps** (o modelo de deploy). Juntos, eles transformam o Kubernetes de "artesanato YAML" em um pipeline de entrega repetível, auditável e pronto para produção.
+
+---
+
+## Helm — O Gerenciador de Pacotes do Kubernetes
+
+Helm está para o Kubernetes assim como o `apt` está para o Debian ou o `dnf` para o Fedora. Ele empacota múltiplos recursos Kubernetes em uma única unidade versionada e configurável chamada **chart**.
+
+### Conceitos Fundamentais
+
+| Termo Helm | Equivalente Linux | O Que É |
 |-----------|-----------------|------------|
-| **Chart** | `.deb` or `.rpm` package | A bundle of templated Kubernetes manifests |
-| **Release** | An installed package | A specific instance of a chart running in a cluster |
-| **Values** | `debconf` answers / dpkg-reconfigure | Configuration parameters passed at install time |
-| **Repository** | APT source list (`/etc/apt/sources.list`) | A server that hosts charts |
-| **Template** | Jinja2 / ERB templates | Go templates that generate YAML from values |
-| **Revision** | Package version history | Each `helm upgrade` creates a new revision |
+| **Chart** | Pacote `.deb` ou `.rpm` | Um bundle de manifestos Kubernetes com templates |
+| **Release** | Um pacote instalado | Uma instância específica de um chart rodando em um cluster |
+| **Values** | Respostas do `debconf` / dpkg-reconfigure | Parâmetros de configuração passados no momento da instalação |
+| **Repository** | Lista de fontes APT (`/etc/apt/sources.list`) | Um servidor que hospeda charts |
+| **Template** | Templates Jinja2 / ERB | Templates Go que geram YAML a partir de values |
+| **Revision** | Histórico de versões de pacotes | Cada `helm upgrade` cria uma nova revision |
 
-### How Helm Works
+### Como o Helm Funciona
 
-A Helm chart is a directory with a specific structure:
+Um chart Helm é um diretório com uma estrutura específica:
 
 ```
 my-chart/
-├── Chart.yaml          # Metadata (name, version, description)
-├── values.yaml         # Default configuration values
-├── templates/          # Go template files that generate K8s manifests
+├── Chart.yaml          # Metadata (nome, versão, descrição)
+├── values.yaml         # Valores de configuração padrão
+├── templates/          # Arquivos de template Go que geram manifestos K8s
 │   ├── deployment.yaml
 │   ├── service.yaml
 │   ├── configmap.yaml
-│   └── _helpers.tpl    # Template helper functions
-└── charts/             # Dependencies (sub-charts)
+│   └── _helpers.tpl    # Funções auxiliares de template
+└── charts/             # Dependências (sub-charts)
 ```
 
-The `templates/` directory contains Kubernetes manifests with Go template placeholders. For example, `templates/deployment.yaml` might look like:
+O diretório `templates/` contém manifestos Kubernetes com placeholders de template Go. Por exemplo, `templates/deployment.yaml` pode ser assim:
 
 ```yaml
 apiVersion: apps/v1
@@ -71,7 +71,7 @@ spec:
         - containerPort: {{ .Values.service.port }}
 ```
 
-And `values.yaml` provides the defaults:
+E o `values.yaml` fornece os valores padrão:
 
 ```yaml
 replicaCount: 1
@@ -83,13 +83,13 @@ service:
   type: ClusterIP
 ```
 
-When you run `helm install`, Helm renders the templates by substituting values, producing plain Kubernetes YAML that gets applied to the cluster. You can override any value at install time with `--set` or `--values`.
+Quando você executa `helm install`, o Helm renderiza os templates substituindo os valores, produzindo YAML puro do Kubernetes que é aplicado ao cluster. Você pode sobrescrever qualquer valor no momento da instalação com `--set` ou `--values`.
 
-### Helm Repositories and Artifact Hub
+### Repositórios Helm e Artifact Hub
 
-Charts are distributed through repositories — HTTP servers (or OCI registries) hosting packaged charts. You add a repository, update the index, and search for charts just like you would with `apt`:
+Charts são distribuídos através de repositórios — servidores HTTP (ou registros OCI) hospedando charts empacotados. Você adiciona um repositório, atualiza o índice e busca charts assim como faria com o `apt`:
 
-| APT Command | Helm Equivalent |
+| Comando APT | Equivalente Helm |
 |-------------|----------------|
 | `add-apt-repository ppa:...` | `helm repo add bitnami https://charts.bitnami.com/bitnami` |
 | `apt update` | `helm repo update` |
@@ -97,72 +97,72 @@ Charts are distributed through repositories — HTTP servers (or OCI registries)
 | `apt show nginx` | `helm show chart bitnami/nginx` |
 | `apt install nginx` | `helm install my-nginx bitnami/nginx` |
 
-[Artifact Hub](https://artifacthub.io/) is the public directory for finding Helm charts — think of it as the Kubernetes equivalent of `packages.ubuntu.com` or `hub.docker.com` for charts. It indexes charts from multiple repositories and provides search, documentation, and version history.
+O [Artifact Hub](https://artifacthub.io/) é o diretório público para encontrar charts Helm — pense nele como o equivalente Kubernetes do `packages.ubuntu.com` ou `hub.docker.com` para charts. Ele indexa charts de múltiplos repositórios e fornece busca, documentação e histórico de versões.
 
-### Helm Lifecycle Commands
+### Comandos de Ciclo de Vida do Helm
 
-The core workflow:
+O fluxo de trabalho principal:
 
 ```bash
-# Install a chart (creates a release)
+# Instalar um chart (cria uma release)
 helm install <release-name> <chart> [--set key=value] [--values custom.yaml]
 
-# List installed releases
+# Listar releases instaladas
 helm list
 
-# Show current values of a release
+# Mostrar valores atuais de uma release
 helm get values <release-name>
 
-# Upgrade a release (new revision)
+# Atualizar uma release (nova revision)
 helm upgrade <release-name> <chart> [--set key=value]
 
-# Rollback to a previous revision
+# Rollback para uma revision anterior
 helm rollback <release-name> <revision-number>
 
-# View release history
+# Ver histórico da release
 helm history <release-name>
 
-# Uninstall a release
+# Desinstalar uma release
 helm uninstall <release-name>
 
-# Render templates locally without installing (great for debugging)
+# Renderizar templates localmente sem instalar (ótimo para debug)
 helm template <release-name> <chart> [--set key=value]
 ```
 
-The `helm template` command is particularly useful — it renders the chart to plain YAML without touching the cluster. This is how you debug template issues or feed Helm output into other tools (like Kustomize, which we'll cover next).
+O comando `helm template` é particularmente útil — ele renderiza o chart em YAML puro sem tocar no cluster. É assim que você debugga problemas de template ou alimenta a saída do Helm em outras ferramentas (como Kustomize, que veremos a seguir).
 
 ---
 
-## Kustomize — Patch Without Templates
+## Kustomize — Patches Sem Templates
 
-Kustomize takes a fundamentally different approach from Helm. Instead of templates with placeholders, Kustomize works with plain, valid Kubernetes YAML and applies patches on top. There's no templating language, no special syntax — just YAML transformations.
+Kustomize adota uma abordagem fundamentalmente diferente do Helm. Em vez de templates com placeholders, o Kustomize trabalha com YAML puro e válido do Kubernetes e aplica patches por cima. Não há linguagem de templates, sem sintaxe especial — apenas transformações YAML.
 
-### The Base + Overlays Model
+### O Modelo Base + Overlays
 
-Kustomize uses a layered structure:
+O Kustomize usa uma estrutura em camadas:
 
 ```
 app/
-├── base/                    # The base manifests (valid YAML)
-│   ├── kustomization.yaml   # Declares which resources to include
+├── base/                    # Os manifestos base (YAML válido)
+│   ├── kustomization.yaml   # Declara quais recursos incluir
 │   ├── deployment.yaml
 │   └── service.yaml
 └── overlays/
-    ├── dev/                 # Dev-specific patches
+    ├── dev/                 # Patches específicos para dev
     │   └── kustomization.yaml
-    └── prod/                # Prod-specific patches
+    └── prod/                # Patches específicos para prod
         └── kustomization.yaml
 ```
 
-The **base** contains your standard Kubernetes manifests — no placeholders, no special syntax. These are the same YAML files you'd apply with `kubectl apply -f`.
+A **base** contém seus manifestos Kubernetes padrão — sem placeholders, sem sintaxe especial. São os mesmos arquivos YAML que você aplicaria com `kubectl apply -f`.
 
-**Overlays** contain patches that modify the base for a specific environment. The dev overlay might reduce replicas to 1 and use a `latest` image tag. The prod overlay might increase replicas to 5, set resource limits, and add pod anti-affinity rules.
+**Overlays** contêm patches que modificam a base para um ambiente específico. O overlay de dev pode reduzir réplicas para 1 e usar uma tag de imagem `latest`. O overlay de prod pode aumentar réplicas para 5, definir limites de recursos e adicionar regras de pod anti-affinity.
 
-This is like Linux alternatives and symlinks — the base software is the same, but the system-specific configuration (which binary to use, which config file to load) varies.
+Isso é como alternatives e symlinks no Linux — o software base é o mesmo, mas a configuração específica do sistema (qual binário usar, qual arquivo de configuração carregar) varia.
 
-### How Kustomize Works
+### Como o Kustomize Funciona
 
-The `kustomization.yaml` file in each directory tells Kustomize what resources to include and what transformations to apply:
+O arquivo `kustomization.yaml` em cada diretório diz ao Kustomize quais recursos incluir e quais transformações aplicar:
 
 **base/kustomization.yaml:**
 
@@ -212,38 +212,38 @@ namePrefix: prod-
 namespace: production
 ```
 
-Build and apply:
+Compilar e aplicar:
 
 ```bash
-# Preview what dev overlay produces
+# Pré-visualizar o que o overlay de dev produz
 kubectl kustomize overlays/dev
 
-# Preview what prod overlay produces
+# Pré-visualizar o que o overlay de prod produz
 kubectl kustomize overlays/prod
 
-# Apply the dev overlay
+# Aplicar o overlay de dev
 kubectl apply -k overlays/dev
 
-# Apply the prod overlay
+# Aplicar o overlay de prod
 kubectl apply -k overlays/prod
 ```
 
-The `-k` flag is built into kubectl — Kustomize is integrated directly, no separate installation needed. The `kubectl kustomize` command renders the output without applying, which is useful for review and debugging.
+A flag `-k` está integrada no kubectl — o Kustomize é integrado diretamente, sem necessidade de instalação separada. O comando `kubectl kustomize` renderiza a saída sem aplicar, o que é útil para revisão e debug.
 
-### What Kustomize Can Do
+### O Que o Kustomize Pode Fazer
 
-| Transformation | Description |
+| Transformação | Descrição |
 |----------------|-------------|
-| `namePrefix` / `nameSuffix` | Add prefix/suffix to all resource names |
-| `namespace` | Override the namespace for all resources |
-| `commonLabels` | Add labels to all resources and selectors |
-| `commonAnnotations` | Add annotations to all resources |
-| `images` | Override image names and tags without patching |
-| `patches` | Strategic merge patches or JSON patches |
-| `configMapGenerator` | Generate ConfigMaps from files or literals |
-| `secretGenerator` | Generate Secrets from files or literals |
+| `namePrefix` / `nameSuffix` | Adicionar prefixo/sufixo a todos os nomes de recursos |
+| `namespace` | Sobrescrever o namespace para todos os recursos |
+| `commonLabels` | Adicionar labels a todos os recursos e selectors |
+| `commonAnnotations` | Adicionar annotations a todos os recursos |
+| `images` | Sobrescrever nomes e tags de imagens sem patching |
+| `patches` | Strategic merge patches ou JSON patches |
+| `configMapGenerator` | Gerar ConfigMaps a partir de arquivos ou literais |
+| `secretGenerator` | Gerar Secrets a partir de arquivos ou literais |
 
-The `images` transformation is particularly clean — you can change image tags across all deployments without writing a patch:
+A transformação `images` é particularmente limpa — você pode alterar tags de imagens em todos os deployments sem escrever um patch:
 
 ```yaml
 apiVersion: kustomize.config.k8s.io/v1beta1
@@ -257,219 +257,219 @@ images:
 
 ---
 
-## Helm vs. Kustomize — When to Use Which
+## Helm vs. Kustomize — Quando Usar Qual
 
-Both tools solve the "managing YAML across environments" problem, but from different angles:
+Ambas as ferramentas resolvem o problema de "gerenciar YAML entre ambientes", mas de ângulos diferentes:
 
-| Aspect | Helm | Kustomize |
+| Aspecto | Helm | Kustomize |
 |--------|------|-----------|
-| **Approach** | Templates with values substitution | Patches on top of plain YAML |
-| **Distribution** | Charts are packages you share | Bases are just directories you copy or reference |
-| **Lifecycle** | Full lifecycle: install, upgrade, rollback, uninstall | Build tool only — uses `kubectl apply/delete` |
-| **Complexity** | Higher — Go templates, helpers, hooks, dependencies | Lower — pure YAML, no templating language |
-| **Best for** | Third-party apps, complex parameterization | Internal apps, environment-specific customization |
-| **State tracking** | Helm tracks release history (revisions) | No state — relies on kubectl and Git |
+| **Abordagem** | Templates com substituição de valores | Patches sobre YAML puro |
+| **Distribuição** | Charts são pacotes que você compartilha | Bases são apenas diretórios que você copia ou referencia |
+| **Ciclo de vida** | Ciclo completo: instalar, atualizar, rollback, desinstalar | Apenas ferramenta de build — usa `kubectl apply/delete` |
+| **Complexidade** | Maior — templates Go, helpers, hooks, dependências | Menor — YAML puro, sem linguagem de templates |
+| **Melhor para** | Apps de terceiros, parametrização complexa | Apps internos, customização específica por ambiente |
+| **Rastreamento de estado** | Helm rastreia histórico de releases (revisions) | Sem estado — depende do kubectl e Git |
 
-**Use Helm when:**
-- You're installing third-party software (databases, monitoring stacks, ingress controllers)
-- You need to distribute reusable packages to other teams
-- You need lifecycle management (rollback to revision 3, track who installed what)
-- The application has many configurable parameters
+**Use Helm quando:**
+- Você está instalando software de terceiros (bancos de dados, stacks de monitoramento, ingress controllers)
+- Você precisa distribuir pacotes reutilizáveis para outras equipes
+- Você precisa de gerenciamento de ciclo de vida (rollback para revision 3, rastrear quem instalou o quê)
+- A aplicação tem muitos parâmetros configuráveis
 
-**Use Kustomize when:**
-- You're customizing your own team's manifests across environments
-- You want to avoid learning a templating language
-- You need to make small, targeted changes to existing YAML
-- You want to keep your base manifests as valid, readable Kubernetes YAML
+**Use Kustomize quando:**
+- Você está customizando os manifestos da sua própria equipe entre ambientes
+- Você quer evitar aprender uma linguagem de templates
+- Você precisa fazer mudanças pequenas e direcionadas em YAML existente
+- Você quer manter seus manifestos base como YAML Kubernetes válido e legível
 
-**Use both together when:**
-- You install a Helm chart but need environment-specific tweaks that aren't exposed as Helm values
-- You render a chart with `helm template` and apply Kustomize patches on top
+**Use ambos juntos quando:**
+- Você instala um chart Helm mas precisa de ajustes específicos por ambiente que não são expostos como Helm values
+- Você renderiza um chart com `helm template` e aplica patches Kustomize por cima
 
 ---
 
-## GitOps — A Brief Introduction
+## GitOps — Uma Breve Introdução
 
-We've covered how to package (Helm) and customize (Kustomize) your Kubernetes manifests. But how do you get them into the cluster? So far, we've been running `kubectl apply` from our laptops. In production, this is problematic:
+Cobrimos como empacotar (Helm) e customizar (Kustomize) seus manifestos Kubernetes. Mas como você os coloca no cluster? Até agora, estávamos executando `kubectl apply` dos nossos laptops. Em produção, isso é problemático:
 
-- Who applied what, and when? There's no audit trail.
-- Did someone make a manual change with `kubectl edit` that nobody else knows about?
-- How do you reproduce the exact state of the cluster?
+- Quem aplicou o quê, e quando? Não há rastro de auditoria.
+- Alguém fez uma mudança manual com `kubectl edit` que ninguém mais sabe?
+- Como você reproduz o estado exato do cluster?
 
-**GitOps** solves this by making Git the single source of truth for your cluster's desired state. The workflow flips from "push" to "pull":
+**GitOps** resolve isso tornando o Git a única fonte da verdade para o estado desejado do cluster. O fluxo de trabalho inverte de "push" para "pull":
 
-**Traditional (push):**
+**Tradicional (push):**
 ```
-Developer → kubectl apply → Cluster
+Desenvolvedor → kubectl apply → Cluster
 ```
 
 **GitOps (pull):**
 ```
-Developer → git push → Git repo ← GitOps controller → Cluster
+Desenvolvedor → git push → Repositório Git ← Controlador GitOps → Cluster
 ```
 
-A GitOps controller (like [ArgoCD](https://argo-cd.readthedocs.io/en/stable/) or [Flux](https://fluxcd.io/)) runs inside the cluster and continuously watches a Git repository. When it detects a change (new commit, updated values), it syncs the cluster to match the Git state. If someone makes a manual change with `kubectl`, the controller reverts it — Git always wins.
+Um controlador GitOps (como [ArgoCD](https://argo-cd.readthedocs.io/en/stable/) ou [Flux](https://fluxcd.io/)) roda dentro do cluster e observa continuamente um repositório Git. Quando detecta uma mudança (novo commit, valores atualizados), ele sincroniza o cluster para corresponder ao estado do Git. Se alguém fizer uma mudança manual com `kubectl`, o controlador reverte — o Git sempre vence.
 
-Think of it as `ansible-pull` or `puppet agent` for Kubernetes — the system pulls its configuration from a central source instead of having an admin push it.
+Pense nisso como `ansible-pull` ou `puppet agent` para o Kubernetes — o sistema puxa sua configuração de uma fonte central em vez de ter um administrador empurrando.
 
-### Why GitOps Matters
+### Por Que GitOps Importa
 
-| Benefit | How |
+| Benefício | Como |
 |---------|-----|
-| **Audit trail** | Every change is a Git commit with author, timestamp, and message |
-| **Reproducibility** | The cluster state is defined in code, not in someone's terminal history |
-| **Rollback** | `git revert` rolls back the cluster, not just the code |
-| **Security** | Developers push to Git; they don't need `kubectl` access to the cluster |
-| **Drift detection** | The controller alerts when the cluster state differs from Git |
+| **Rastro de auditoria** | Toda mudança é um commit Git com autor, timestamp e mensagem |
+| **Reprodutibilidade** | O estado do cluster é definido em código, não no histórico do terminal de alguém |
+| **Rollback** | `git revert` faz rollback do cluster, não apenas do código |
+| **Segurança** | Desenvolvedores fazem push para o Git; não precisam de acesso `kubectl` ao cluster |
+| **Detecção de drift** | O controlador alerta quando o estado do cluster difere do Git |
 
-We won't build a full GitOps pipeline in this chapter — that's a topic that deserves its own deep dive. But understanding the concept is essential because Helm and Kustomize are the *building blocks* of GitOps. ArgoCD and Flux natively understand both Helm charts and Kustomize overlays, making everything we've covered in this chapter directly applicable to a GitOps workflow.
+Não vamos construir um pipeline GitOps completo neste capítulo — esse é um tópico que merece seu próprio aprofundamento. Mas entender o conceito é essencial porque Helm e Kustomize são os *blocos de construção* do GitOps. ArgoCD e Flux entendem nativamente tanto charts Helm quanto overlays Kustomize, tornando tudo que cobrimos neste capítulo diretamente aplicável a um fluxo GitOps.
 
 ---
 
-## Linux ↔ Kubernetes Comparison
+## Comparação Linux ↔ Kubernetes
 
-| Linux Concept | K8s Equivalent | Notes |
+| Conceito Linux | Equivalente K8s | Notas |
 |---------------|----------------|-------|
-| `apt` / `yum` / `dnf` | Helm | Package manager with repos, install, upgrade, rollback |
-| `.deb` / `.rpm` package | Helm Chart | Reusable, versioned bundle of resources |
-| APT source list (`sources.list`) | Helm Repository | Where to find charts |
-| `debconf` / `dpkg-reconfigure` | `values.yaml` / `--set` | Installation-time configuration |
-| `/etc/alternatives`, symlinks | Kustomize overlays | Environment-specific variants of the same base |
-| Puppet/Ansible templates | Helm templates (Go) | Parameterized configuration generation |
-| `git` + `ansible-pull` | GitOps (ArgoCD / Flux) | Pull-based declarative deployment |
-| `dpkg --list` | `helm list` | See what's installed |
-| `apt rollback` (via snapshots) | `helm rollback` | Revert to a previous version |
+| `apt` / `yum` / `dnf` | Helm | Gerenciador de pacotes com repos, install, upgrade, rollback |
+| Pacote `.deb` / `.rpm` | Helm Chart | Bundle reutilizável e versionado de recursos |
+| Lista de fontes APT (`sources.list`) | Helm Repository | Onde encontrar charts |
+| `debconf` / `dpkg-reconfigure` | `values.yaml` / `--set` | Configuração no momento da instalação |
+| `/etc/alternatives`, symlinks | Overlays Kustomize | Variantes específicas por ambiente da mesma base |
+| Templates Puppet/Ansible | Templates Helm (Go) | Geração de configuração parametrizada |
+| `git` + `ansible-pull` | GitOps (ArgoCD / Flux) | Deploy declarativo baseado em pull |
+| `dpkg --list` | `helm list` | Ver o que está instalado |
+| `apt rollback` (via snapshots) | `helm rollback` | Reverter para uma versão anterior |
 
 ---
 
-> ### 🔀 Where the Linux Analogy Breaks
+> ### 🔀 Onde a Analogia com Linux Quebra
 >
-> - **Helm is more than a package manager.** `apt` installs packages and tracks what's installed. Helm does that *plus* manages release state — it knows every revision of every release, what values were used, and can roll back to any previous revision. It's a package manager, a deployment tracker, and a rollback engine combined. On Linux, you'd need `apt` + `etckeeper` + `timeshift` to get comparable functionality.
+> - **Helm é mais que um gerenciador de pacotes.** O `apt` instala pacotes e rastreia o que está instalado. O Helm faz isso *mais* gerencia o estado das releases — ele conhece cada revision de cada release, quais valores foram usados, e pode fazer rollback para qualquer revision anterior. É um gerenciador de pacotes, um rastreador de deploys e um motor de rollback combinados. No Linux, você precisaria do `apt` + `etckeeper` + `timeshift` para ter funcionalidade comparável.
 >
-> - **Kustomize doesn't "install" anything.** There's no `kustomize install` or `kustomize uninstall`. Kustomize is a YAML build tool — it transforms manifests and outputs plain YAML. You still use `kubectl apply` to create resources and `kubectl delete` to remove them. It has no concept of releases, revisions, or rollback. Think of it as a preprocessor, not a package manager.
+> - **Kustomize não "instala" nada.** Não existe `kustomize install` ou `kustomize uninstall`. Kustomize é uma ferramenta de build de YAML — ele transforma manifestos e produz YAML puro. Você ainda usa `kubectl apply` para criar recursos e `kubectl delete` para removê-los. Ele não tem conceito de releases, revisions ou rollback. Pense nele como um pré-processador, não um gerenciador de pacotes.
 >
-> - **GitOps inverts the deployment model.** Traditional Linux deployment is push-based: you SSH in, run commands, and the system changes. GitOps is pull-based: you push to Git, and a controller inside the cluster detects the change and applies it. If you make a manual change with `kubectl edit`, the GitOps controller will revert it to match Git. This is a fundamentally different relationship between the operator and the system — the controller is the operator, not you.
+> - **GitOps inverte o modelo de deploy.** O deploy tradicional no Linux é baseado em push: você faz SSH, executa comandos, e o sistema muda. GitOps é baseado em pull: você faz push para o Git, e um controlador dentro do cluster detecta a mudança e a aplica. Se você fizer uma mudança manual com `kubectl edit`, o controlador GitOps vai revertê-la para corresponder ao Git. Esta é uma relação fundamentalmente diferente entre o operador e o sistema — o controlador é o operador, não você.
 
 ---
 
-## Diagnostic Lab: Packaging Hands-On
+## Laboratório Diagnóstico: Empacotamento na Prática
 
-### Prerequisites
+### Pré-requisitos
 
-Make sure you have Helm installed:
+Certifique-se de que o Helm está instalado:
 
 ```bash
-# Check if Helm is installed
+# Verificar se o Helm está instalado
 helm version
 
-# If not installed, see https://helm.sh/docs/intro/install/
-# On macOS: brew install helm
-# On Linux: curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
-# On Windows: choco install kubernetes-helm
+# Se não estiver instalado, veja https://helm.sh/docs/intro/install/
+# No macOS: brew install helm
+# No Linux: curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
+# No Windows: choco install kubernetes-helm
 ```
 
-Create a Kind cluster:
+Crie um cluster Kind:
 
 ```bash
 kind create cluster --name packaging-lab
 ```
 
-### Lab 1: Helm Basics
+### Lab 1: Básico do Helm
 
-**Step 1 — Add a chart repository:**
+**Passo 1 — Adicionar um repositório de charts:**
 
 ```bash
 helm repo add bitnami https://charts.bitnami.com/bitnami
 helm repo update
 ```
 
-**Step 2 — Search for charts:**
+**Passo 2 — Buscar charts:**
 
 ```bash
 helm search repo bitnami/nginx
 ```
 
-You'll see available versions of the Bitnami nginx chart.
+Você verá as versões disponíveis do chart nginx da Bitnami.
 
-**Step 3 — Inspect the chart before installing:**
+**Passo 3 — Inspecionar o chart antes de instalar:**
 
 ```bash
-# Show chart metadata
+# Mostrar metadata do chart
 helm show chart bitnami/nginx
 
-# Show the default values (this is what you can configure)
+# Mostrar os valores padrão (isso é o que você pode configurar)
 helm show values bitnami/nginx | head -50
 ```
 
-**Step 4 — Install the chart:**
+**Passo 4 — Instalar o chart:**
 
 ```bash
 helm install my-nginx bitnami/nginx --set service.type=ClusterIP
 ```
 
-**Step 5 — Explore the release:**
+**Passo 5 — Explorar a release:**
 
 ```bash
-# List installed releases
+# Listar releases instaladas
 helm list
 
-# Show the values used for this release
+# Mostrar os valores usados para esta release
 helm get values my-nginx
 
-# Show all resources created by the release
+# Mostrar todos os recursos criados pela release
 helm get manifest my-nginx | head -40
 
-# Check the pods and services
+# Verificar os pods e services
 kubectl get pods -l app.kubernetes.io/instance=my-nginx
 kubectl get svc -l app.kubernetes.io/instance=my-nginx
 ```
 
-**Step 6 — Upgrade the release:**
+**Passo 6 — Atualizar a release:**
 
 ```bash
 helm upgrade my-nginx bitnami/nginx \
   --set service.type=ClusterIP \
   --set replicaCount=3
 
-# Check that we now have 3 replicas
+# Verificar que agora temos 3 réplicas
 kubectl get pods -l app.kubernetes.io/instance=my-nginx
 
-# View release history
+# Ver histórico da release
 helm history my-nginx
 ```
 
-**Step 7 — Rollback:**
+**Passo 7 — Rollback:**
 
 ```bash
-# Rollback to revision 1 (the original install)
+# Rollback para revision 1 (a instalação original)
 helm rollback my-nginx 1
 
-# Verify we're back to 1 replica
+# Verificar que voltamos para 1 réplica
 kubectl get pods -l app.kubernetes.io/instance=my-nginx
 
-# History now shows the rollback
+# O histórico agora mostra o rollback
 helm history my-nginx
 ```
 
-**Step 8 — Uninstall:**
+**Passo 8 — Desinstalar:**
 
 ```bash
 helm uninstall my-nginx
 
-# Verify everything is cleaned up
+# Verificar que tudo foi removido
 kubectl get pods -l app.kubernetes.io/instance=my-nginx
 helm list
 ```
 
-### Lab 2: Kustomize Basics
+### Lab 2: Básico do Kustomize
 
-**Step 1 — Create the base manifests:**
+**Passo 1 — Criar os manifestos base:**
 
 ```bash
 mkdir -p kustomize-demo/base kustomize-demo/overlays/dev kustomize-demo/overlays/prod
 ```
 
-Create the base Deployment. Save as `kustomize-demo/base/deployment.yaml`:
+Crie o Deployment base. Salve como `kustomize-demo/base/deployment.yaml`:
 
 ```bash
 cat <<'EOF' > kustomize-demo/base/deployment.yaml
@@ -502,7 +502,7 @@ spec:
 EOF
 ```
 
-Create the base Service. Save as `kustomize-demo/base/service.yaml`:
+Crie o Service base. Salve como `kustomize-demo/base/service.yaml`:
 
 ```bash
 cat <<'EOF' > kustomize-demo/base/service.yaml
@@ -520,7 +520,7 @@ spec:
 EOF
 ```
 
-Create the base `kustomization.yaml`:
+Crie o `kustomization.yaml` base:
 
 ```bash
 cat <<'EOF' > kustomize-demo/base/kustomization.yaml
@@ -532,7 +532,7 @@ resources:
 EOF
 ```
 
-**Step 2 — Create the dev overlay:**
+**Passo 2 — Criar o overlay de dev:**
 
 ```bash
 cat <<'EOF' > kustomize-demo/overlays/dev/kustomization.yaml
@@ -554,7 +554,7 @@ patches:
 EOF
 ```
 
-**Step 3 — Create the prod overlay:**
+**Passo 3 — Criar o overlay de prod:**
 
 ```bash
 cat <<'EOF' > kustomize-demo/overlays/prod/kustomization.yaml
@@ -579,49 +579,49 @@ images:
 EOF
 ```
 
-**Step 4 — Compare the outputs:**
+**Passo 4 — Comparar as saídas:**
 
 ```bash
-echo "=== DEV OVERLAY ==="
+echo "=== OVERLAY DE DEV ==="
 kubectl kustomize kustomize-demo/overlays/dev
 echo ""
-echo "=== PROD OVERLAY ==="
+echo "=== OVERLAY DE PROD ==="
 kubectl kustomize kustomize-demo/overlays/prod
 ```
 
-Notice the differences: dev has 1 replica with `dev-` prefix; prod has 5 replicas with `prod-` prefix and the alpine image tag. Same base, different outcomes.
+Note as diferenças: dev tem 1 réplica com prefixo `dev-`; prod tem 5 réplicas com prefixo `prod-` e a tag de imagem alpine. Mesma base, resultados diferentes.
 
-**Step 5 — Apply the dev overlay:**
+**Passo 5 — Aplicar o overlay de dev:**
 
 ```bash
-# Create the dev namespace
+# Criar o namespace de dev
 kubectl create namespace dev
 
-# Apply the dev overlay
+# Aplicar o overlay de dev
 kubectl apply -k kustomize-demo/overlays/dev -n dev
 
-# Verify
+# Verificar
 kubectl get deployment -n dev
 kubectl get pods -n dev
 kubectl get svc -n dev
 ```
 
-**Step 6 — Apply the prod overlay:**
+**Passo 6 — Aplicar o overlay de prod:**
 
 ```bash
-# Create the production namespace
+# Criar o namespace de produção
 kubectl create namespace production
 
-# Apply the prod overlay
+# Aplicar o overlay de prod
 kubectl apply -k kustomize-demo/overlays/prod -n production
 
-# Verify — notice the difference in replicas and image tag
+# Verificar — note a diferença em réplicas e tag de imagem
 kubectl get deployment -n production
 kubectl get pods -n production
 kubectl describe deployment prod-my-app -n production | grep Image
 ```
 
-**Step 7 — Clean up the Kustomize resources:**
+**Passo 7 — Limpar os recursos do Kustomize:**
 
 ```bash
 kubectl delete -k kustomize-demo/overlays/dev -n dev
@@ -629,11 +629,11 @@ kubectl delete -k kustomize-demo/overlays/prod -n production
 kubectl delete namespace dev production
 ```
 
-### Lab 3: Combining Helm and Kustomize
+### Lab 3: Combinando Helm e Kustomize
 
-Sometimes you want to install a Helm chart but apply additional customizations that the chart's values don't expose. The pattern: render the chart with `helm template`, then patch with Kustomize.
+Às vezes você quer instalar um chart Helm mas aplicar customizações adicionais que os values do chart não expõem. O padrão: renderizar o chart com `helm template`, depois aplicar patches com Kustomize.
 
-**Step 1 — Render a Helm chart to YAML:**
+**Passo 1 — Renderizar um chart Helm em YAML:**
 
 ```bash
 mkdir -p helm-kustomize-demo/base
@@ -643,7 +643,7 @@ helm template my-nginx bitnami/nginx \
   > helm-kustomize-demo/base/nginx.yaml
 ```
 
-**Step 2 — Create a Kustomize layer on top:**
+**Passo 2 — Criar uma camada Kustomize por cima:**
 
 ```bash
 cat <<'EOF' > helm-kustomize-demo/base/kustomization.yaml
@@ -657,55 +657,55 @@ commonAnnotations:
 EOF
 ```
 
-**Step 3 — Preview and apply:**
+**Passo 3 — Pré-visualizar e aplicar:**
 
 ```bash
-# Preview — you'll see all the Helm-generated resources now have our custom annotations
+# Pré-visualizar — você verá que todos os recursos gerados pelo Helm agora têm nossas annotations customizadas
 kubectl kustomize helm-kustomize-demo/base | head -30
 
-# Apply
+# Aplicar
 kubectl apply -k helm-kustomize-demo/base
 
-# Verify the annotations are present
+# Verificar que as annotations estão presentes
 kubectl get deployment -o yaml | grep -A2 "annotations"
 
-# Clean up
+# Limpar
 kubectl delete -k helm-kustomize-demo/base
 ```
 
-**What just happened:** Helm rendered the nginx chart into plain YAML. Kustomize added annotations that the original chart didn't support. This pattern lets you use Helm for what it's good at (packaging third-party apps) and Kustomize for what it's good at (environment-specific tweaks).
+**O que acabou de acontecer:** O Helm renderizou o chart nginx em YAML puro. O Kustomize adicionou annotations que o chart original não suportava. Este padrão permite usar o Helm para o que ele faz bem (empacotar apps de terceiros) e o Kustomize para o que ele faz bem (ajustes específicos por ambiente).
 
-### Clean Up
+### Limpeza
 
 ```bash
-# Delete the Kind cluster
+# Deletar o cluster Kind
 kind delete cluster --name packaging-lab
 
-# Remove the demo directories
+# Remover os diretórios de demo
 rm -rf kustomize-demo helm-kustomize-demo
 ```
 
 ---
 
-## Key Takeaways
+## Principais Conclusões
 
-1. **Managing raw YAML at scale doesn't work.** As your cluster grows, you need templating (Helm), patching (Kustomize), or both to keep manifests maintainable across environments.
+1. **Gerenciar YAML bruto em escala não funciona.** Conforme seu cluster cresce, você precisa de templating (Helm), patching (Kustomize), ou ambos para manter os manifestos gerenciáveis entre ambientes.
 
-2. **Helm is a full package manager.** Charts bundle resources, values parameterize them, and Helm tracks releases with install, upgrade, rollback, and uninstall lifecycle management.
+2. **Helm é um gerenciador de pacotes completo.** Charts empacotam recursos, values os parametrizam, e o Helm rastreia releases com gerenciamento de ciclo de vida completo: install, upgrade, rollback e uninstall.
 
-3. **Kustomize patches plain YAML without templates.** The base + overlays model lets you maintain a single set of valid manifests and customize them per environment using patches, prefixes, image overrides, and label injection.
+3. **Kustomize aplica patches em YAML puro sem templates.** O modelo base + overlays permite manter um único conjunto de manifestos válidos e customizá-los por ambiente usando patches, prefixos, substituição de imagens e injeção de labels.
 
-4. **Helm and Kustomize are complementary, not competing.** Use Helm to install third-party charts. Use Kustomize to customize your own manifests. Use both together when you need Helm packaging with Kustomize fine-tuning.
+4. **Helm e Kustomize são complementares, não concorrentes.** Use Helm para instalar charts de terceiros. Use Kustomize para customizar seus próprios manifestos. Use ambos juntos quando precisar do empacotamento Helm com o ajuste fino do Kustomize.
 
-5. **`helm template` is your debugging tool.** It renders charts to plain YAML without installing, letting you inspect exactly what would be applied to the cluster.
+5. **`helm template` é sua ferramenta de debug.** Ele renderiza charts em YAML puro sem instalar, permitindo inspecionar exatamente o que seria aplicado ao cluster.
 
-6. **Kustomize is built into kubectl.** No separate installation needed — `kubectl apply -k` and `kubectl kustomize` work out of the box.
+6. **Kustomize é integrado ao kubectl.** Não precisa de instalação separada — `kubectl apply -k` e `kubectl kustomize` funcionam nativamente.
 
-7. **GitOps is the production deployment model.** Push to Git, let a controller (ArgoCD, Flux) sync the cluster. Helm charts and Kustomize overlays are the building blocks that GitOps controllers consume.
+7. **GitOps é o modelo de deploy para produção.** Faça push para o Git, deixe um controlador (ArgoCD, Flux) sincronizar o cluster. Charts Helm e overlays Kustomize são os blocos de construção que controladores GitOps consomem.
 
 ---
 
-## Further Reading
+## Leitura Complementar
 
 - [Helm — Using Helm](https://helm.sh/docs/intro/using_helm/)
 - [Helm Install](https://helm.sh/docs/helm/helm_install/)
@@ -718,5 +718,5 @@ rm -rf kustomize-demo helm-kustomize-demo
 
 ---
 
-**Previous:** [Chapter 9 — Configuration and Secrets](09-configuration-and-secrets.md)
-**Next:** [Chapter 11 — Security](11-security.md)
+**Anterior:** [Capítulo 9 — Configuração e Secrets](09-configuration-and-secrets.md)
+**Próximo:** [Capítulo 11 — Segurança](11-security.md)

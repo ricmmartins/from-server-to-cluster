@@ -1,74 +1,74 @@
-# Chapter 14: Production Operations
+# Capítulo 14: Operações em Produção
 
-*"Deploying to production is not the finish line — it's the starting line."*
-
----
-
-## From Single Server Maintenance to Cluster Lifecycle
-
-On a Linux server, Day-2 operations are familiar: you run `apt upgrade`, schedule `cron` backups of `/etc` and databases, put machines in maintenance mode for hardware swaps, and restore from backup when things go sideways. You've done it a hundred times.
-
-In Kubernetes, the same responsibilities exist — but they're distributed across multiple nodes, multiple control plane components, and a shared state store (etcd) that holds the truth of your entire cluster. Upgrading isn't "run `apt upgrade` and reboot." It's a choreographed dance: upgrade the control plane, then drain each worker one by one, upgrade it, uncordon it, and move to the next. Miss a step and you have version skew. Rush it and you have downtime.
-
-This chapter covers the essential Day-2 operations that keep a Kubernetes cluster healthy: upgrades, backups, node management, disaster recovery, and the Operator pattern that automates complex operational tasks.
+*"Implantar em produção não é a linha de chegada — é a linha de partida."*
 
 ---
 
-## Cluster Upgrades
+## De Manutenção de Servidor Único para Ciclo de Vida do Cluster
 
-### The Upgrade Lifecycle
+Em um servidor Linux, operações Day-2 são familiares: você executa `apt upgrade`, agenda backups com `cron` de `/etc` e bancos de dados, coloca máquinas em modo de manutenção para troca de hardware e restaura de backup quando as coisas dão errado. Você já fez isso centenas de vezes.
 
-Kubernetes follows a strict upgrade sequence:
+No Kubernetes, as mesmas responsabilidades existem — mas são distribuídas entre múltiplos nós, múltiplos componentes do control plane e um armazenamento de estado compartilhado (etcd) que mantém a verdade de todo o seu cluster. Fazer upgrade não é "executar `apt upgrade` e reiniciar." É uma dança coreografada: faça upgrade do control plane, depois drene cada worker um por um, faça upgrade, libere-o e passe para o próximo. Pule um passo e você terá version skew. Apresse e terá downtime.
+
+Este capítulo cobre as operações Day-2 essenciais que mantêm um cluster Kubernetes saudável: upgrades, backups, gerenciamento de nós, recuperação de desastres e o padrão Operator que automatiza tarefas operacionais complexas.
+
+---
+
+## Upgrades de Cluster
+
+### O Ciclo de Vida do Upgrade
+
+O Kubernetes segue uma sequência estrita de upgrade:
 
 ```
-1. Upgrade control plane (API server, controller-manager, scheduler, etcd)
-2. Upgrade workers one at a time (drain → upgrade kubelet/kubectl → uncordon)
-3. Verify cluster health after each step
+1. Upgrade do control plane (API server, controller-manager, scheduler, etcd)
+2. Upgrade dos workers um de cada vez (drain → upgrade kubelet/kubectl → uncordon)
+3. Verificar saúde do cluster após cada passo
 ```
 
-You cannot skip versions. Kubernetes supports upgrades one minor version at a time (e.g., 1.31 → 1.32, not 1.30 → 1.32).
+Você não pode pular versões. O Kubernetes suporta upgrades de uma versão minor por vez (ex: 1.31 → 1.32, não 1.30 → 1.32).
 
-### The kubeadm Upgrade Workflow
+### O Fluxo de Upgrade com kubeadm
 
-For self-managed clusters using kubeadm:
+Para clusters autogerenciados usando kubeadm:
 
-**Step 1 — Check available upgrades:**
+**Passo 1 — Verificar upgrades disponíveis:**
 
 ```bash
 sudo kubeadm upgrade plan
 ```
 
-This command inspects your current cluster, checks the installed kubeadm version, and reports what versions you can upgrade to. It also warns about deprecated API versions and required actions.
+Este comando inspeciona seu cluster atual, verifica a versão instalada do kubeadm e reporta para quais versões você pode fazer upgrade. Ele também alerta sobre versões de API depreciadas e ações necessárias.
 
-**Step 2 — Upgrade the first control plane node:**
+**Passo 2 — Fazer upgrade do primeiro nó do control plane:**
 
 ```bash
-# Upgrade kubeadm itself first
+# Fazer upgrade do próprio kubeadm primeiro
 sudo apt-get update
 sudo apt-get install -y kubeadm=1.32.0-1.1
 
-# Run the upgrade
+# Executar o upgrade
 sudo kubeadm upgrade apply v1.32.0
 
-# Upgrade kubelet and kubectl on this node
+# Fazer upgrade do kubelet e kubectl neste nó
 sudo apt-get install -y kubelet=1.32.0-1.1 kubectl=1.32.0-1.1
 sudo systemctl daemon-reload
 sudo systemctl restart kubelet
 ```
 
-**Step 3 — Upgrade additional control plane nodes (if HA):**
+**Passo 3 — Fazer upgrade de nós adicionais do control plane (se HA):**
 
 ```bash
 sudo kubeadm upgrade node
 ```
 
-**Step 4 — Upgrade worker nodes (one at a time):**
+**Passo 4 — Fazer upgrade dos worker nodes (um de cada vez):**
 
 ```bash
-# From a machine with kubectl access:
+# De uma máquina com acesso kubectl:
 kubectl drain <worker-node> --ignore-daemonsets --delete-emptydir-data
 
-# On the worker node:
+# No worker node:
 sudo apt-get update
 sudo apt-get install -y kubeadm=1.32.0-1.1
 sudo kubeadm upgrade node
@@ -76,46 +76,46 @@ sudo apt-get install -y kubelet=1.32.0-1.1 kubectl=1.32.0-1.1
 sudo systemctl daemon-reload
 sudo systemctl restart kubelet
 
-# From the kubectl machine:
+# Da máquina com kubectl:
 kubectl uncordon <worker-node>
 ```
 
-Repeat for each worker.
+Repita para cada worker.
 
-### Version Skew Policy
+### Política de Version Skew
 
-Kubernetes components have strict compatibility rules:
+Componentes do Kubernetes têm regras estritas de compatibilidade:
 
-| Component | Allowed Skew from API Server |
+| Componente | Skew Permitido do API Server |
 |-----------|------------------------------|
-| kubelet | Up to 3 minor versions behind |
-| kube-proxy | Up to 3 minor versions behind |
-| controller-manager, scheduler | Up to 1 minor version behind |
-| kubectl | ±1 minor version |
+| kubelet | Até 3 versões minor atrás |
+| kube-proxy | Até 3 versões minor atrás |
+| controller-manager, scheduler | Até 1 versão minor atrás |
+| kubectl | ±1 versão minor |
 
-This means with an API server at v1.32, your kubelets can be v1.32, v1.31, v1.30, or v1.29 — but not v1.28 or v1.33.
+Isso significa que com um API server na v1.32, seus kubelets podem ser v1.32, v1.31, v1.30 ou v1.29 — mas não v1.28 ou v1.33.
 
-### Managed Kubernetes Upgrades
+### Upgrades em Kubernetes Gerenciado
 
-In managed services (AKS, EKS, GKE), the provider handles control plane upgrades. You manage node pool upgrades:
+Em serviços gerenciados (AKS, EKS, GKE), o provedor cuida dos upgrades do control plane. Você gerencia os upgrades do node pool:
 
-| Provider | Control Plane | Node Pool |
+| Provedor | Control Plane | Node Pool |
 |----------|--------------|-----------|
 | AKS | `az aks upgrade --kubernetes-version` | `az aks nodepool upgrade` |
-| EKS | `aws eks update-cluster-version` | Update node group AMI |
-| GKE | Automatic or `gcloud container clusters upgrade` | `gcloud container clusters upgrade --node-pool` |
+| EKS | `aws eks update-cluster-version` | Atualizar AMI do node group |
+| GKE | Automático ou `gcloud container clusters upgrade` | `gcloud container clusters upgrade --node-pool` |
 
 ---
 
-## etcd Backup and Restore
+## Backup e Restore do etcd
 
-### Why etcd Is Critical
+### Por Que o etcd É Crítico
 
-etcd is a distributed key-value store that holds **all** cluster state: Deployments, Services, ConfigMaps, Secrets, RBAC rules, custom resources — everything. If etcd is lost without a backup, your cluster is gone. The workloads keep running (kubelet continues managing containers), but you lose all management capability.
+O etcd é um armazenamento distribuído de chave-valor que mantém **todo** o estado do cluster: Deployments, Services, ConfigMaps, Secrets, regras RBAC, recursos customizados — tudo. Se o etcd for perdido sem um backup, seu cluster se foi. Os workloads continuam rodando (o kubelet continua gerenciando containers), mas você perde toda a capacidade de gerenciamento.
 
-Think of etcd as the `/etc` directory of your entire cluster, plus the process table, plus the routing table, all in one database.
+Pense no etcd como o diretório `/etc` do seu cluster inteiro, mais a tabela de processos, mais a tabela de rotas, tudo em um banco de dados.
 
-### Backup with etcdctl
+### Backup com etcdctl
 
 ```bash
 ETCDCTL_API=3 etcdctl snapshot save /backup/etcd-snapshot.db \
@@ -125,170 +125,170 @@ ETCDCTL_API=3 etcdctl snapshot save /backup/etcd-snapshot.db \
   --key=/etc/kubernetes/pki/etcd/server.key
 ```
 
-The certificate flags are required because etcd uses mutual TLS for all communication.
+As flags de certificado são obrigatórias porque o etcd usa mutual TLS para toda comunicação.
 
-### Verify the Backup
+### Verificar o Backup
 
 ```bash
 ETCDCTL_API=3 etcdctl snapshot status /backup/etcd-snapshot.db --write-out=table
 ```
 
-This outputs a table showing hash, revision, total keys, and total size — confirming the backup is valid and complete.
+Isso gera uma tabela mostrando hash, revisão, total de chaves e tamanho total — confirmando que o backup é válido e completo.
 
-### Restore from Backup
+### Restaurar de Backup
 
 ```bash
-# Stop the API server and etcd (on kubeadm clusters, move static pod manifests)
+# Parar o API server e etcd (em clusters kubeadm, mover manifestos de static pod)
 sudo mv /etc/kubernetes/manifests/kube-apiserver.yaml /tmp/
 sudo mv /etc/kubernetes/manifests/etcd.yaml /tmp/
 
-# Restore the snapshot to a new data directory
+# Restaurar o snapshot para um novo diretório de dados
 ETCDCTL_API=3 etcdctl snapshot restore /backup/etcd-snapshot.db \
   --data-dir=/var/lib/etcd-from-backup
 
-# Update etcd config to use the new data directory
-# (edit the etcd.yaml manifest to point to /var/lib/etcd-from-backup)
+# Atualizar config do etcd para usar o novo diretório de dados
+# (editar o manifesto etcd.yaml para apontar para /var/lib/etcd-from-backup)
 
-# Restart components
+# Reiniciar componentes
 sudo mv /tmp/kube-apiserver.yaml /etc/kubernetes/manifests/
 sudo mv /tmp/etcd.yaml /etc/kubernetes/manifests/
 ```
 
-> **Note:** As of etcd 3.5+, the restore operation is migrating to `etcdutl snapshot restore`. Both tools work for current Kubernetes versions, but `etcdutl` is the recommended tool going forward.
+> **Nota:** A partir do etcd 3.5+, a operação de restore está migrando para `etcdutl snapshot restore`. Ambas as ferramentas funcionam para versões atuais do Kubernetes, mas `etcdutl` é a ferramenta recomendada daqui em diante.
 
-### Scheduling Regular Backups
+### Agendando Backups Regulares
 
-In production, automate etcd backups:
+Em produção, automatize backups do etcd:
 
-- **CronJob in the cluster:** Mount etcd certs and run etcdctl on a schedule
-- **External cron:** A control plane node's crontab runs the backup and copies to remote storage
-- **Velero:** Cluster-aware backup tool that handles both etcd state and persistent volumes
+- **CronJob no cluster:** Montar certificados do etcd e executar etcdctl em um agendamento
+- **Cron externo:** O crontab de um nó do control plane executa o backup e copia para armazenamento remoto
+- **Velero:** Ferramenta de backup com consciência do cluster que lida tanto com estado do etcd quanto volumes persistentes
 
-### Managed Kubernetes: etcd Is Invisible
+### Kubernetes Gerenciado: etcd É Invisível
 
-In AKS, EKS, and GKE, the provider manages etcd completely. You cannot access it directly — and you don't need to. The provider handles replication, backup, and disaster recovery of the control plane data store.
+No AKS, EKS e GKE, o provedor gerencia o etcd completamente. Você não pode acessá-lo diretamente — e não precisa. O provedor cuida da replicação, backup e recuperação de desastres do armazenamento de dados do control plane.
 
 ---
 
-## Node Operations
+## Operações de Nó
 
-### Cordon — Mark Unschedulable
+### Cordon — Marcar como Não-Agendável
 
 ```bash
 kubectl cordon <node-name>
 ```
 
-Cordoning marks a node as unschedulable. Existing pods continue running, but the scheduler won't place new pods there. It's the "maintenance mode" of Kubernetes.
+Fazer cordon marca um nó como não-agendável. Pods existentes continuam rodando, mas o scheduler não colocará novos pods lá. É o "modo de manutenção" do Kubernetes.
 
 ```bash
-# Check node status — look for SchedulingDisabled
+# Verificar status do nó — procure por SchedulingDisabled
 kubectl get nodes
 # NAME                      STATUS                     ROLES
 # worker-1                  Ready,SchedulingDisabled   <none>
 ```
 
-### Drain — Evict Pods Gracefully
+### Drain — Remover Pods Graciosamente
 
 ```bash
 kubectl drain <node-name> --ignore-daemonsets --delete-emptydir-data
 ```
 
-Draining does three things:
-1. Cordons the node (marks unschedulable)
-2. Evicts all pods (respecting PodDisruptionBudgets)
-3. Waits for pods to be rescheduled elsewhere
+Fazer drain faz três coisas:
+1. Faz cordon do nó (marca como não-agendável)
+2. Remove todos os pods (respeitando PodDisruptionBudgets)
+3. Aguarda os pods serem reagendados em outro lugar
 
-The flags:
-- `--ignore-daemonsets` — DaemonSet pods can't be evicted (they must run on every node), so ignore them
-- `--delete-emptydir-data` — Allow eviction of pods with emptyDir volumes (their data is ephemeral anyway)
+As flags:
+- `--ignore-daemonsets` — Pods de DaemonSet não podem ser removidos (devem rodar em todo nó), então ignore-os
+- `--delete-emptydir-data` — Permitir remoção de pods com volumes emptyDir (seus dados são efêmeros de qualquer forma)
 
-### Uncordon — Return to Service
+### Uncordon — Retornar ao Serviço
 
 ```bash
 kubectl uncordon <node-name>
 ```
 
-The node becomes schedulable again. Existing pods on other nodes won't automatically migrate back — but new pods can now be placed here.
+O nó se torna agendável novamente. Pods existentes em outros nós não migrarão automaticamente de volta — mas novos pods agora podem ser colocados aqui.
 
-### The Node Replacement Pattern
+### O Padrão de Substituição de Nó
 
 ```bash
-# 1. Drain the old node
+# 1. Drenar o nó antigo
 kubectl drain old-node --ignore-daemonsets --delete-emptydir-data
 
-# 2. Terminate the old node (cloud provider specific)
+# 2. Terminar o nó antigo (específico do provedor cloud)
 # aws ec2 terminate-instances --instance-ids ...
 # az vm delete ...
 
-# 3. Add a new node (join token from kubeadm)
+# 3. Adicionar um novo nó (token de join do kubeadm)
 kubeadm token create --print-join-command
-# On new node:
+# No novo nó:
 kubeadm join <control-plane>:6443 --token <token> --discovery-token-ca-cert-hash sha256:<hash>
 
-# 4. Verify
+# 4. Verificar
 kubectl get nodes
 ```
 
 ---
 
-## Disaster Recovery Strategy
+## Estratégia de Recuperação de Desastres
 
-### What to Back Up
+### O Que Fazer Backup
 
-A complete disaster recovery plan covers:
+Um plano completo de recuperação de desastres cobre:
 
-| What | Why | How |
+| O Quê | Por Quê | Como |
 |------|-----|-----|
-| **etcd** | All cluster state (Deployments, Services, RBAC) | `etcdctl snapshot save` |
-| **Persistent Volumes** | Application data (databases, uploads) | CSI snapshots, Velero |
-| **External state** | DNS records, TLS certificates, IAM configs | Infrastructure-as-Code (Terraform) |
-| **YAML manifests** | Source of truth for all resources | Git repository (GitOps) |
-| **Secrets** (encrypted) | Credentials, API keys | Sealed Secrets, external secret stores |
+| **etcd** | Todo o estado do cluster (Deployments, Services, RBAC) | `etcdctl snapshot save` |
+| **Persistent Volumes** | Dados da aplicação (bancos de dados, uploads) | CSI snapshots, Velero |
+| **Estado externo** | Registros DNS, certificados TLS, configurações IAM | Infrastructure-as-Code (Terraform) |
+| **Manifestos YAML** | Fonte da verdade para todos os recursos | Repositório Git (GitOps) |
+| **Secrets** (criptografados) | Credenciais, chaves de API | Sealed Secrets, armazenamentos de secrets externos |
 
-### RPO and RTO
+### RPO e RTO
 
-| Term | Meaning | Example |
+| Termo | Significado | Exemplo |
 |------|---------|---------|
-| **RPO** (Recovery Point Objective) | How much data can you lose? | "1 hour" = hourly backups acceptable |
-| **RTO** (Recovery Time Objective) | How fast must you recover? | "15 minutes" = automated recovery needed |
+| **RPO** (Recovery Point Objective) | Quanto de dados você pode perder? | "1 hora" = backups de hora em hora aceitáveis |
+| **RTO** (Recovery Time Objective) | Quão rápido deve recuperar? | "15 minutos" = recuperação automatizada necessária |
 
-Your backup frequency (RPO) and recovery automation (RTO) determine your disaster recovery investment.
+Sua frequência de backup (RPO) e automação de recuperação (RTO) determinam seu investimento em recuperação de desastres.
 
-### Multi-Cluster Strategies
+### Estratégias Multi-Cluster
 
-| Strategy | Description | Complexity | Use Case |
+| Estratégia | Descrição | Complexidade | Caso de Uso |
 |----------|-------------|-----------|----------|
-| **Active/Passive** | Primary cluster serves traffic; standby receives backups | Medium | Cost-sensitive, moderate RTO |
-| **Active/Active** | Multiple clusters serve traffic simultaneously | High | Zero-downtime requirements |
-| **Backup/Restore** | Single cluster with off-site backups | Low | Dev/staging, long RTO acceptable |
+| **Ativo/Passivo** | Cluster primário serve tráfego; standby recebe backups | Média | Sensível a custo, RTO moderado |
+| **Ativo/Ativo** | Múltiplos clusters servem tráfego simultaneamente | Alta | Requisitos de zero-downtime |
+| **Backup/Restore** | Cluster único com backups off-site | Baixa | Dev/staging, RTO longo aceitável |
 
-### Velero for Cluster Backup
+### Velero para Backup de Cluster
 
-Velero is a CNCF project that backs up Kubernetes resources and persistent volumes:
+Velero é um projeto CNCF que faz backup de recursos Kubernetes e volumes persistentes:
 
 ```bash
-# Install Velero (example with cloud provider plugin)
+# Instalar Velero (exemplo com plugin de provedor cloud)
 velero install --provider aws --bucket my-backup-bucket ...
 
-# Create a backup
+# Criar um backup
 velero backup create my-backup --include-namespaces production
 
-# Schedule recurring backups
+# Agendar backups recorrentes
 velero schedule create daily --schedule="0 2 * * *" --include-namespaces production
 
-# Restore
+# Restaurar
 velero restore create --from-backup my-backup
 ```
 
-Velero is the Kubernetes equivalent of enterprise backup tools like Veeam or Commvault — but purpose-built for the K8s resource model.
+Velero é o equivalente Kubernetes de ferramentas empresariais de backup como Veeam ou Commvault — mas construído especificamente para o modelo de recursos do K8s.
 
 ---
 
-## CRDs and Operators
+## CRDs e Operators
 
 ### Custom Resource Definitions (CRDs)
 
-Kubernetes ships with built-in resource types: Pods, Deployments, Services, ConfigMaps. CRDs let you extend the API with your own resource types.
+O Kubernetes vem com tipos de recursos nativos: Pods, Deployments, Services, ConfigMaps. CRDs permitem estender a API com seus próprios tipos de recursos.
 
 ```yaml
 apiVersion: apiextensions.k8s.io/v1
@@ -323,7 +323,7 @@ spec:
     - db
 ```
 
-After applying this CRD, you can create `Database` resources like any built-in type:
+Após aplicar este CRD, você pode criar recursos `Database` como qualquer tipo nativo:
 
 ```yaml
 apiVersion: example.com/v1
@@ -336,97 +336,97 @@ spec:
   storage: "50Gi"
 ```
 
-And query them with kubectl:
+E consultá-los com kubectl:
 
 ```bash
 kubectl get databases
 kubectl describe database orders-db
 ```
 
-### The Operator Pattern
+### O Padrão Operator
 
-A CRD alone is just data — it doesn't do anything. An **Operator** is a custom controller that watches your CRD and takes action. It's the reconciliation loop pattern (from Chapter 4) applied to domain-specific logic.
+Um CRD sozinho é apenas dados — não faz nada. Um **Operator** é um controller customizado que observa seu CRD e toma ações. É o padrão de loop de reconciliação (do Capítulo 4) aplicado a lógica específica de domínio.
 
-Think of it this way:
-- **CRD** = "I want a PostgreSQL database with 3 replicas and 50 GiB storage"
-- **Operator** = The automation that creates the StatefulSet, configures replication, manages backups, handles failover, and keeps the database in the desired state
+Pense desta forma:
+- **CRD** = "Eu quero um banco de dados PostgreSQL com 3 réplicas e 50 GiB de armazenamento"
+- **Operator** = A automação que cria o StatefulSet, configura replicação, gerencia backups, lida com failover e mantém o banco de dados no estado desejado
 
-Operators encode operational knowledge into software. Instead of a DBA running manual failover commands at 3 AM, the operator detects the primary is down and promotes a replica automatically.
+Operators codificam conhecimento operacional em software. Em vez de um DBA executar comandos manuais de failover às 3 da manhã, o operator detecta que o primário caiu e promove uma réplica automaticamente.
 
-### Popular Operators
+### Operators Populares
 
-| Operator | What It Manages | Linux Equivalent |
+| Operator | O Que Gerencia | Equivalente Linux |
 |----------|----------------|-----------------|
-| cert-manager | TLS certificates (Let's Encrypt) | certbot + cron |
-| prometheus-operator | Monitoring stack (Prometheus + Alertmanager) | prometheus + systemd |
-| postgres-operator | PostgreSQL clusters (replication, backup, failover) | patroni + manual DBA work |
-| strimzi | Apache Kafka clusters | Kafka scripts + manual ops |
-| ArgoCD | GitOps continuous deployment | deploy scripts + webhooks |
+| cert-manager | Certificados TLS (Let's Encrypt) | certbot + cron |
+| prometheus-operator | Stack de monitoramento (Prometheus + Alertmanager) | prometheus + systemd |
+| postgres-operator | Clusters PostgreSQL (replicação, backup, failover) | patroni + trabalho manual de DBA |
+| strimzi | Clusters Apache Kafka | Scripts Kafka + operações manuais |
+| ArgoCD | Deploy contínuo GitOps | Scripts de deploy + webhooks |
 
-### Finding Operators
+### Encontrando Operators
 
-- **OperatorHub.io** (https://operatorhub.io) — Catalog of community operators
-- **Artifact Hub** (https://artifacthub.io) — Includes Helm charts and operators
-- **GitHub** — Many operators are open source projects
+- **OperatorHub.io** (https://operatorhub.io) — Catálogo de operators da comunidade
+- **Artifact Hub** (https://artifacthub.io) — Inclui Helm charts e operators
+- **GitHub** — Muitos operators são projetos open source
 
 ---
 
-## Cluster Lifecycle Tools
+## Ferramentas de Ciclo de Vida do Cluster
 
-| Tool | Use Case | Type |
+| Ferramenta | Caso de Uso | Tipo |
 |------|----------|------|
-| **kubeadm** | Bootstrap bare-metal/VM clusters | Self-managed |
-| **Kind** | Local development and testing | Dev/CI |
-| **k3s** | Lightweight clusters, edge, IoT | Self-managed (minimal) |
-| **AKS** | Azure managed Kubernetes | Cloud-managed |
-| **EKS** | AWS managed Kubernetes | Cloud-managed |
-| **GKE** | Google Cloud managed Kubernetes | Cloud-managed |
+| **kubeadm** | Bootstrap de clusters bare-metal/VM | Autogerenciado |
+| **Kind** | Desenvolvimento local e testes | Dev/CI |
+| **k3s** | Clusters leves, edge, IoT | Autogerenciado (mínimo) |
+| **AKS** | Kubernetes gerenciado Azure | Gerenciado em nuvem |
+| **EKS** | Kubernetes gerenciado AWS | Gerenciado em nuvem |
+| **GKE** | Kubernetes gerenciado Google Cloud | Gerenciado em nuvem |
 
-### Managed vs. Self-Managed Comparison
+### Comparação Gerenciado vs. Autogerenciado
 
-| Aspect | Self-Managed (kubeadm) | Cloud-Managed (AKS/EKS/GKE) |
+| Aspecto | Autogerenciado (kubeadm) | Gerenciado em Nuvem (AKS/EKS/GKE) |
 |--------|----------------------|------------------------------|
-| Control plane | You manage | Provider manages |
-| etcd | You backup/restore | Provider handles |
-| Upgrades | Manual, step-by-step | Semi-automated |
-| Node scaling | Manual or cluster-autoscaler | Integrated autoscaler |
-| Cost | Infrastructure only | Infrastructure + management fee |
-| Customization | Full control | Provider's guardrails |
-| SLA | Your responsibility | Provider SLA (99.95%+) |
+| Control plane | Você gerencia | Provedor gerencia |
+| etcd | Você faz backup/restore | Provedor cuida |
+| Upgrades | Manual, passo a passo | Semi-automatizado |
+| Escala de nós | Manual ou cluster-autoscaler | Autoscaler integrado |
+| Custo | Apenas infraestrutura | Infraestrutura + taxa de gerenciamento |
+| Customização | Controle total | Guardrails do provedor |
+| SLA | Sua responsabilidade | SLA do provedor (99.95%+) |
 
 ---
 
-## Linux ↔ Kubernetes Operations Comparison
+## Comparação de Operações Linux ↔ Kubernetes
 
-| Linux Operation | K8s Equivalent | Notes |
+| Operação Linux | Equivalente K8s | Notas |
 |----------------|---------------|-------|
-| `apt upgrade` + reboot | `kubeadm upgrade` + drain/uncordon | Rolling node-by-node upgrade |
-| `rsync /etc`, cron backups | `etcdctl snapshot save` | Cluster state backup |
-| Restore from backup | `etcdctl snapshot restore` | Cluster recovery |
-| Maintenance mode | `kubectl cordon` + `drain` | Take node offline safely |
-| `puppet`/`chef` agents | Operators | Automated application management |
-| `/etc/cron.d/backup` | Velero scheduled backups | Periodic cluster snapshots |
-| Custom init scripts | CRDs + custom controllers | Extend system behavior |
-| Cluster (Pacemaker/Corosync) | K8s control plane HA | Quorum-based availability |
+| `apt upgrade` + reboot | `kubeadm upgrade` + drain/uncordon | Upgrade rolling nó por nó |
+| `rsync /etc`, cron backups | `etcdctl snapshot save` | Backup do estado do cluster |
+| Restaurar de backup | `etcdctl snapshot restore` | Recuperação do cluster |
+| Modo de manutenção | `kubectl cordon` + `drain` | Tirar nó do ar com segurança |
+| Agentes `puppet`/`chef` | Operators | Gerenciamento automatizado de aplicações |
+| `/etc/cron.d/backup` | Backups agendados do Velero | Snapshots periódicos do cluster |
+| Scripts init customizados | CRDs + controllers customizados | Estender comportamento do sistema |
+| Cluster (Pacemaker/Corosync) | HA do control plane K8s | Disponibilidade baseada em quórum |
 
 ---
 
-> ### ⚠️ Where the Linux Analogy Breaks
+> ### ⚠️ Onde a Analogia com Linux Quebra
 >
-> **In-place vs. rolling upgrades:** Linux upgrades can be done in-place — `apt upgrade` on a running machine. Kubernetes upgrades are rolling: you upgrade the control plane first, then drain and upgrade each worker node individually. You can't just run "yum update kubernetes" on a live node with running pods. The orchestration is part of the process.
+> **Upgrades in-place vs. rolling:** Upgrades Linux podem ser feitos in-place — `apt upgrade` em uma máquina rodando. Upgrades Kubernetes são rolling: você faz upgrade do control plane primeiro, depois drena e faz upgrade de cada worker node individualmente. Você não pode simplesmente executar "yum update kubernetes" em um nó ativo com pods rodando. A orquestração é parte do processo.
 >
-> **No single "backup everything":** On Linux, you can `tar` the whole filesystem and call it a backup. In Kubernetes, cluster state (etcd) and application data (PersistentVolumes) live in different places with different backup mechanisms. You need both, plus external state like DNS records, TLS certificates, and IAM configurations. A complete backup strategy touches multiple systems.
+> **Nenhum "backup de tudo" único:** No Linux, você pode fazer `tar` de todo o filesystem e chamar de backup. No Kubernetes, o estado do cluster (etcd) e os dados da aplicação (PersistentVolumes) vivem em lugares diferentes com mecanismos de backup diferentes. Você precisa de ambos, mais estado externo como registros DNS, certificados TLS e configurações IAM. Uma estratégia completa de backup toca múltiplos sistemas.
 >
-> **Operators are more than scripts:** A Linux cron job runs periodically and applies a fix. An Operator runs continuously, watches resources in real-time, and reacts immediately. It's the difference between checking your email once an hour and having push notifications. Operators don't just automate tasks — they encode domain expertise and self-heal in real-time.
+> **Operators são mais que scripts:** Um cron job Linux roda periodicamente e aplica uma correção. Um Operator roda continuamente, observa recursos em tempo real e reage imediatamente. É a diferença entre verificar seu email uma vez por hora e ter notificações push. Operators não apenas automatizam tarefas — eles codificam expertise de domínio e fazem self-heal em tempo real.
 
 ---
 
-## Diagnostic Lab: Production Operations
+## Laboratório Diagnóstico: Operações em Produção
 
-### Prerequisites
+### Pré-requisitos
 
 ```bash
-# Create a multi-node Kind cluster
+# Criar um cluster Kind multi-nó
 kind create cluster --name prod-ops-lab --config - <<EOF
 kind: Cluster
 apiVersion: kind.x-k8s.io/v1alpha4
@@ -440,15 +440,15 @@ nodes:
     node-role: worker
 EOF
 
-# Verify cluster
+# Verificar cluster
 kubectl get nodes
 ```
 
 ---
 
-### Lab 1: Drain and Uncordon
+### Lab 1: Drain e Uncordon
 
-**Step 1 — Deploy a workload across workers:**
+**Passo 1 — Implantar um workload entre os workers:**
 
 ```bash
 cat <<'EOF' | kubectl apply -f -
@@ -473,17 +473,17 @@ spec:
         - containerPort: 80
 EOF
 
-# Wait for pods to be ready
+# Aguardar pods ficarem prontos
 kubectl wait --for=condition=Ready pod -l app=web-fleet --timeout=60s
 kubectl get pods -l app=web-fleet -o wide
 ```
 
-Note which pods are on which nodes.
+Observe quais pods estão em quais nós.
 
-**Step 2 — Cordon a worker:**
+**Passo 2 — Fazer cordon de um worker:**
 
 ```bash
-# Get worker node names
+# Obter nomes dos worker nodes
 WORKER=$(kubectl get nodes --selector='!node-role.kubernetes.io/control-plane' -o jsonpath='{.items[0].metadata.name}')
 echo "Cordoning node: $WORKER"
 
@@ -491,40 +491,40 @@ kubectl cordon $WORKER
 kubectl get nodes
 ```
 
-**Step 3 — Verify new pods can't be scheduled on the cordoned node:**
+**Passo 3 — Verificar que novos pods não podem ser agendados no nó com cordon:**
 
 ```bash
-# Scale up — new pods should only go to the other worker
+# Escalar para cima — novos pods devem ir apenas para o outro worker
 kubectl scale deployment web-fleet --replicas=10
 sleep 5
 kubectl get pods -l app=web-fleet -o wide | grep -c "$WORKER"
-# Existing pods remain, but no new pods land on the cordoned node
+# Pods existentes permanecem, mas nenhum novo pod vai para o nó com cordon
 ```
 
-**Step 4 — Drain the cordoned worker:**
+**Passo 4 — Drenar o worker com cordon:**
 
 ```bash
 kubectl drain $WORKER --ignore-daemonsets --delete-emptydir-data
 kubectl get pods -l app=web-fleet -o wide
-# All web-fleet pods are now on the remaining worker(s)
+# Todos os pods web-fleet agora estão no(s) worker(s) restante(s)
 ```
 
-**Step 5 — Uncordon and rebalance:**
+**Passo 5 — Fazer uncordon e rebalancear:**
 
 ```bash
 kubectl uncordon $WORKER
 kubectl get nodes
 
-# Scale down and back up to trigger redistribution
+# Escalar para baixo e de volta para cima para disparar redistribuição
 kubectl scale deployment web-fleet --replicas=3
 sleep 5
 kubectl scale deployment web-fleet --replicas=6
 sleep 10
 kubectl get pods -l app=web-fleet -o wide
-# Pods should spread across both workers again
+# Pods devem se espalhar entre ambos os workers novamente
 ```
 
-**Clean up:**
+**Limpeza:**
 
 ```bash
 kubectl delete deployment web-fleet
@@ -532,16 +532,16 @@ kubectl delete deployment web-fleet
 
 ---
 
-### Lab 2: etcd Backup
+### Lab 2: Backup do etcd
 
-**Step 1 — Identify the etcd pod:**
+**Passo 1 — Identificar o pod do etcd:**
 
 ```bash
 kubectl get pods -n kube-system | grep etcd
 # etcd-prod-ops-lab-control-plane
 ```
 
-**Step 2 — Check etcd health:**
+**Passo 2 — Verificar saúde do etcd:**
 
 ```bash
 kubectl exec -n kube-system etcd-prod-ops-lab-control-plane -- etcdctl \
@@ -552,7 +552,7 @@ kubectl exec -n kube-system etcd-prod-ops-lab-control-plane -- etcdctl \
   endpoint health
 ```
 
-**Step 3 — Create a snapshot:**
+**Passo 3 — Criar um snapshot:**
 
 ```bash
 kubectl exec -n kube-system etcd-prod-ops-lab-control-plane -- etcdctl \
@@ -563,19 +563,19 @@ kubectl exec -n kube-system etcd-prod-ops-lab-control-plane -- etcdctl \
   snapshot save /var/lib/etcd/backup.db
 ```
 
-**Step 4 — Verify the backup:**
+**Passo 4 — Verificar o backup:**
 
 ```bash
 kubectl exec -n kube-system etcd-prod-ops-lab-control-plane -- etcdctl \
   snapshot status /var/lib/etcd/backup.db --write-out=table
 ```
 
-You should see a table with hash, revision, total keys, and total size — confirming a valid backup.
+Você deve ver uma tabela com hash, revisão, total de chaves e tamanho total — confirmando um backup válido.
 
-**Step 5 — Check what's stored in etcd:**
+**Passo 5 — Verificar o que está armazenado no etcd:**
 
 ```bash
-# Count the keys (gives you a sense of cluster state size)
+# Contar as chaves (dá uma noção do tamanho do estado do cluster)
 kubectl exec -n kube-system etcd-prod-ops-lab-control-plane -- etcdctl \
   --endpoints=https://127.0.0.1:2379 \
   --cacert=/etc/kubernetes/pki/etcd/ca.crt \
@@ -588,7 +588,7 @@ kubectl exec -n kube-system etcd-prod-ops-lab-control-plane -- etcdctl \
 
 ### Lab 3: Custom Resource Definitions
 
-**Step 1 — Create a CRD:**
+**Passo 1 — Criar um CRD:**
 
 ```bash
 cat <<'EOF' | kubectl apply -f -
@@ -636,14 +636,14 @@ spec:
 EOF
 ```
 
-**Step 2 — Verify the CRD is registered:**
+**Passo 2 — Verificar que o CRD está registrado:**
 
 ```bash
 kubectl get crd | grep webapp
 kubectl api-resources | grep webapp
 ```
 
-**Step 3 — Create custom resources:**
+**Passo 3 — Criar recursos customizados:**
 
 ```bash
 cat <<'EOF' | kubectl apply -f -
@@ -676,23 +676,23 @@ spec:
 EOF
 ```
 
-**Step 4 — Query your custom resources:**
+**Passo 4 — Consultar seus recursos customizados:**
 
 ```bash
-# List all webapps (note the custom columns from additionalPrinterColumns)
+# Listar todos os webapps (observe as colunas customizadas do additionalPrinterColumns)
 kubectl get webapps
 
-# Use the short name
+# Usar o nome curto
 kubectl get wa
 
-# Describe one
+# Descrever um
 kubectl describe webapp frontend
 
-# Get as YAML
+# Obter como YAML
 kubectl get webapp api-service -o yaml
 ```
 
-**Step 5 — Clean up CRD resources:**
+**Passo 5 — Limpar recursos do CRD:**
 
 ```bash
 kubectl delete webapp --all
@@ -701,33 +701,33 @@ kubectl delete crd webapps.lab.example.com
 
 ---
 
-### Lab 4: Simulate Cluster Upgrade Workflow
+### Lab 4: Simular Fluxo de Upgrade do Cluster
 
-While we can't actually upgrade Kind (it's a fixed version), we can walk through the exact workflow:
+Embora não possamos realmente fazer upgrade do Kind (é uma versão fixa), podemos percorrer o fluxo exato:
 
-**Step 1 — Check current versions:**
+**Passo 1 — Verificar versões atuais:**
 
 ```bash
 kubectl get nodes -o wide
 kubectl version
 ```
 
-**Step 2 — Review the upgrade plan (conceptual):**
+**Passo 2 — Revisar o plano de upgrade (conceitual):**
 
 ```bash
-# On a real kubeadm cluster, you would run:
+# Em um cluster kubeadm real, você executaria:
 # sudo kubeadm upgrade plan
-# This shows available versions, required actions, and deprecation warnings
+# Isso mostra versões disponíveis, ações necessárias e avisos de depreciação
 
-# In our lab, let's at least check what kubeadm would report
+# Em nosso lab, vamos pelo menos verificar o que o kubeadm reportaria
 echo "=== Current Cluster Version ==="
 kubectl get nodes -o jsonpath='{range .items[*]}{.metadata.name}{"\t"}{.status.nodeInfo.kubeletVersion}{"\n"}{end}'
 ```
 
-**Step 3 — Practice the drain/uncordon cycle:**
+**Passo 3 — Praticar o ciclo drain/uncordon:**
 
 ```bash
-# Deploy a workload
+# Implantar um workload
 cat <<'EOF' | kubectl apply -f -
 apiVersion: apps/v1
 kind: Deployment
@@ -750,26 +750,26 @@ EOF
 
 kubectl wait --for=condition=Ready pod -l app=upgrade-test --timeout=60s
 
-# Get a worker node
+# Obter um worker node
 WORKER=$(kubectl get nodes --selector='!node-role.kubernetes.io/control-plane' -o jsonpath='{.items[0].metadata.name}')
 
-# Step A: Drain (simulating pre-upgrade)
+# Passo A: Drain (simulando pré-upgrade)
 echo "Draining $WORKER..."
 kubectl drain $WORKER --ignore-daemonsets --delete-emptydir-data
 
-# Verify pods moved
+# Verificar que os pods foram movidos
 kubectl get pods -l app=upgrade-test -o wide
 echo "All pods moved off $WORKER"
 
-# Step B: Uncordon (simulating post-upgrade)
+# Passo B: Uncordon (simulando pós-upgrade)
 echo "Uncordoning $WORKER..."
 kubectl uncordon $WORKER
 
-# Step C: Verify node is back in rotation
+# Passo C: Verificar que o nó está de volta em rotação
 kubectl get nodes
 ```
 
-**Step 4 — Document the real upgrade steps:**
+**Passo 4 — Documentar os passos reais de upgrade:**
 
 ```bash
 echo "
@@ -790,7 +790,7 @@ echo "
 "
 ```
 
-**Clean up:**
+**Limpeza:**
 
 ```bash
 kubectl delete deployment upgrade-test
@@ -798,34 +798,34 @@ kubectl delete deployment upgrade-test
 
 ---
 
-### Lab Cleanup
+### Limpeza do Laboratório
 
 ```bash
-# Delete the Kind cluster
+# Deletar o cluster Kind
 kind delete cluster --name prod-ops-lab
 ```
 
 ---
 
-## Key Takeaways
+## Principais Conclusões
 
-1. **Upgrade control plane first, then workers.** Never upgrade workers before the control plane. Follow the version skew policy: kubelet can trail API server by up to 2 minor versions, but never be ahead.
+1. **Faça upgrade do control plane primeiro, depois dos workers.** Nunca faça upgrade dos workers antes do control plane. Siga a política de version skew: kubelet pode ficar até 2 versões minor atrás do API server, mas nunca à frente.
 
-2. **Always drain before maintenance.** `kubectl drain` gracefully evicts pods and respects PodDisruptionBudgets. Never perform node maintenance (upgrades, hardware) without draining first.
+2. **Sempre drene antes da manutenção.** `kubectl drain` remove pods graciosamente e respeita PodDisruptionBudgets. Nunca faça manutenção de nó (upgrades, hardware) sem drenar primeiro.
 
-3. **etcd is your cluster's brain — back it up.** All Kubernetes state lives in etcd. Schedule regular snapshots with `etcdctl snapshot save`. Store backups off-cluster. Test your restore procedure before you need it.
+3. **etcd é o cérebro do seu cluster — faça backup.** Todo o estado do Kubernetes vive no etcd. Agende snapshots regulares com `etcdctl snapshot save`. Armazene backups fora do cluster. Teste seu procedimento de restore antes de precisar dele.
 
-4. **Disaster recovery requires multiple backup targets.** etcd covers cluster state, but PersistentVolumes need CSI snapshots, and external state (DNS, certs, IAM) needs Infrastructure-as-Code. No single tool backs up everything.
+4. **Recuperação de desastres requer múltiplos alvos de backup.** etcd cobre o estado do cluster, mas PersistentVolumes precisam de CSI snapshots, e estado externo (DNS, certificados, IAM) precisa de Infrastructure-as-Code. Nenhuma ferramenta única faz backup de tudo.
 
-5. **CRDs extend the Kubernetes API.** Custom Resource Definitions let you add your own resource types that work with kubectl, RBAC, and the full Kubernetes API machinery.
+5. **CRDs estendem a API do Kubernetes.** Custom Resource Definitions permitem adicionar seus próprios tipos de recursos que funcionam com kubectl, RBAC e toda a maquinaria da API do Kubernetes.
 
-6. **Operators automate Day-2 operations.** Operators are custom controllers that encode operational expertise (backup, failover, scaling) into software that reacts in real-time — not periodic cron jobs.
+6. **Operators automatizam operações Day-2.** Operators são controllers customizados que codificam expertise operacional (backup, failover, scaling) em software que reage em tempo real — não cron jobs periódicos.
 
-7. **Managed Kubernetes handles the hard parts.** AKS, EKS, and GKE manage the control plane, etcd, and upgrades. You focus on node pools and workloads. For production, managed is almost always the right choice unless you have specific requirements.
+7. **Kubernetes gerenciado cuida das partes difíceis.** AKS, EKS e GKE gerenciam o control plane, etcd e upgrades. Você foca em node pools e workloads. Para produção, gerenciado é quase sempre a escolha certa a menos que você tenha requisitos específicos.
 
 ---
 
-## Further Reading
+## Leitura Adicional
 
 - [Upgrading kubeadm Clusters](https://kubernetes.io/docs/tasks/administer-cluster/kubeadm/kubeadm-upgrade/)
 - [Safely Drain a Node](https://kubernetes.io/docs/tasks/administer-cluster/safely-drain-node/)
@@ -838,5 +838,5 @@ kind delete cluster --name prod-ops-lab
 
 ---
 
-**Previous:** [Chapter 13 — Troubleshooting](13-troubleshooting.md)
-**Next:** [Chapter 15 — Next Steps](15-next-steps.md)
+**Anterior:** [Capítulo 13 — Solução de Problemas](13-troubleshooting.md)
+**Próximo:** [Capítulo 15 — Próximos Passos](15-next-steps.md)

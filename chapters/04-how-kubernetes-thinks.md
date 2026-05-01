@@ -1,35 +1,35 @@
-# Chapter 4: How Kubernetes Thinks
+# Capítulo 4: Como o Kubernetes Pensa
 
-*"You don't manage servers anymore. You describe intentions, and controllers make them real."*
+*"Você não gerencia mais servidores. Você descreve intenções, e controllers as tornam realidade."*
 
 ---
 
-## The Biggest Mental Shift You'll Make
+## A Maior Mudança Mental Que Você Vai Fazer
 
-If there's one chapter in this book you read twice, make it this one.
+Se existe um capítulo neste livro que você deve ler duas vezes, é este.
 
-On a Linux server, you're used to being in control. You type a command, something happens, and you see the result. Install nginx? `apt install nginx`. Start it? `systemctl start nginx`. It crashes? Set `Restart=always` in the systemd unit. You are the operator, and the machine does what you say, when you say it.
+Em um servidor Linux, você está acostumado a estar no controle. Você digita um comando, algo acontece, e você vê o resultado. Instalar o nginx? `apt install nginx`. Iniciar? `systemctl start nginx`. Ele travou? Coloque `Restart=always` na unit do systemd. Você é o operador, e a máquina faz o que você diz, quando você diz.
 
-Kubernetes flips this on its head. You don't *do* things — you *declare* things. You write a document (a YAML manifest) that says "I want three nginx replicas running, each with 256MB of memory, exposed on port 80." Then you hand that document to the API server and walk away. Kubernetes takes it from there.
+O Kubernetes inverte isso completamente. Você não *faz* coisas — você *declara* coisas. Você escreve um documento (um manifesto YAML) que diz "eu quero três réplicas do nginx rodando, cada uma com 256MB de memória, exposta na porta 80." Então você entrega esse documento ao API server e vai embora. O Kubernetes cuida do resto.
 
-This isn't just a syntactic difference. It's a fundamentally different relationship between you and the system. On Linux, you're the hands-on mechanic under the hood. In Kubernetes, you're the architect who draws the blueprint and trusts the construction crew (controllers) to build it — and to *keep* it built, forever.
+Isso não é apenas uma diferença sintática. É uma relação fundamentalmente diferente entre você e o sistema. No Linux, você é o mecânico com as mãos na massa, debaixo do capô. No Kubernetes, você é o arquiteto que desenha a planta e confia na equipe de construção (controllers) para construí-la — e para *mantê-la* construída, para sempre.
 
-Let's break down exactly how Kubernetes thinks.
+Vamos detalhar exatamente como o Kubernetes pensa.
 
 ---
 
 ## Desired State vs. Actual State
 
-Every object in Kubernetes has two states:
+Todo objeto no Kubernetes tem dois estados:
 
-- **Desired state** — what you asked for (defined in your YAML manifest, stored in etcd)
-- **Actual state** — what's really happening right now on the cluster
+- **Desired state** (estado desejado) — o que você pediu (definido no seu manifesto YAML, armazenado no etcd)
+- **Actual state** (estado atual) — o que realmente está acontecendo agora no cluster
 
-The entire purpose of Kubernetes is to continuously make the actual state match the desired state. This is the single most important concept in the entire system.
+O propósito inteiro do Kubernetes é continuamente fazer o estado atual corresponder ao estado desejado. Este é o conceito mais importante de todo o sistema.
 
-### A Linux Comparison
+### Uma Comparação com Linux
 
-Think about a systemd unit with `Restart=always`:
+Pense em uma unit do systemd com `Restart=always`:
 
 ```ini
 [Service]
@@ -38,18 +38,18 @@ Restart=always
 RestartSec=5
 ```
 
-If nginx crashes, systemd notices and restarts it. The "desired state" is "nginx should be running." The "actual state" might temporarily be "nginx is dead." Systemd reconciles the difference.
+Se o nginx travar, o systemd percebe e o reinicia. O "desired state" é "nginx deveria estar rodando." O "actual state" pode temporariamente ser "nginx está morto." O systemd reconcilia a diferença.
 
-Kubernetes does this for *everything*, not just process restarts:
+O Kubernetes faz isso para *tudo*, não apenas para reiniciar processos:
 
-- Want 3 replicas? A controller ensures there are always exactly 3.
-- Want a Service routing to healthy pods? A controller updates endpoints when pods come and go.
-- Want a volume mounted? A controller attaches it to the right node.
-- Want a node to be drained? A controller evicts pods and respects disruption budgets.
+- Quer 3 réplicas? Um controller garante que sempre haja exatamente 3.
+- Quer um Service roteando para pods saudáveis? Um controller atualiza os endpoints quando pods vão e vêm.
+- Quer um volume montado? Um controller o anexa ao node correto.
+- Quer um node drenado? Um controller remove pods e respeita disruption budgets.
 
-### Declaring Desired State
+### Declarando o Desired State
 
-In practice, desired state looks like this:
+Na prática, o desired state se parece com isso:
 
 ```yaml
 apiVersion: apps/v1
@@ -78,97 +78,97 @@ spec:
             cpu: "500m"
 ```
 
-You apply this with `kubectl apply -f deployment.yaml`, and you're done. You don't tell Kubernetes *which* node to run it on, *how* to pull the image, or *what* to do if a pod crashes. You just say what you want. The system handles the rest.
+Você aplica isso com `kubectl apply -f deployment.yaml`, e pronto. Você não diz ao Kubernetes *em qual* node executar, *como* baixar a imagem, ou *o que* fazer se um pod travar. Você apenas diz o que quer. O sistema cuida do resto.
 
 ---
 
-## The Reconciliation Loop
+## O Reconciliation Loop
 
-Every controller in Kubernetes runs the same basic algorithm, forever:
+Todo controller no Kubernetes executa o mesmo algoritmo básico, eternamente:
 
 ```
-1. WATCH — Observe the current state of the objects you're responsible for
-2. DIFF  — Compare current state to desired state
-3. ACT   — Take action to close the gap
+1. WATCH — Observe o estado atual dos objetos pelos quais você é responsável
+2. DIFF  — Compare o estado atual com o estado desejado
+3. ACT   — Tome ação para fechar a lacuna
 4. REPEAT
 ```
 
-This is called the **reconciliation loop** (or control loop), and it's the heartbeat of the system.
+Isso é chamado de **reconciliation loop** (ou control loop), e é o batimento cardíaco do sistema.
 
-### The Thermostat Analogy
+### A Analogia do Termostato
 
-The Kubernetes documentation itself uses this analogy: think of a thermostat. You set it to 22°C (desired state). The thermostat continuously reads the room temperature (actual state). If it's too cold, it turns on the heater. If it's too warm, it turns on the AC. It never stops checking.
+A própria documentação do Kubernetes usa esta analogia: pense em um termostato. Você o configura para 22°C (desired state). O termostato continuamente lê a temperatura do ambiente (actual state). Se estiver muito frio, ele liga o aquecedor. Se estiver muito quente, liga o ar-condicionado. Ele nunca para de verificar.
 
-Every Kubernetes controller is a thermostat for its resource type.
+Todo controller do Kubernetes é um termostato para o seu tipo de recurso.
 
-### What Happens When You Create a Deployment
+### O Que Acontece Quando Você Cria um Deployment
 
-Let's trace what happens when you `kubectl apply` the deployment above:
+Vamos rastrear o que acontece quando você executa `kubectl apply` no deployment acima:
 
-1. `kubectl` sends the manifest to the **API server**
-2. The API server validates it and stores it in **etcd**
-3. The **Deployment controller** notices a new Deployment object
-4. It creates a **ReplicaSet** to manage the desired 3 replicas
-5. The **ReplicaSet controller** notices the new ReplicaSet
-6. It creates 3 **Pod** objects (desired state: these pods should exist)
-7. The **Scheduler** notices 3 unscheduled Pods
-8. It assigns each Pod to a node based on available resources
-9. The **kubelet** on each selected node notices new Pods assigned to it
-10. Each kubelet pulls the container image and starts the container
+1. `kubectl` envia o manifesto para o **API server**
+2. O API server valida e armazena no **etcd**
+3. O **Deployment controller** percebe um novo objeto Deployment
+4. Ele cria um **ReplicaSet** para gerenciar as 3 réplicas desejadas
+5. O **ReplicaSet controller** percebe o novo ReplicaSet
+6. Ele cria 3 objetos **Pod** (desired state: esses pods devem existir)
+7. O **Scheduler** percebe 3 Pods não agendados
+8. Ele atribui cada Pod a um node com base nos recursos disponíveis
+9. O **kubelet** em cada node selecionado percebe novos Pods atribuídos a ele
+10. Cada kubelet baixa a imagem do container e inicia o container
 
-That's at least five different controllers, each doing one small job, chained together by the reconciliation pattern. None of them know about the others. They just watch for changes to the objects they care about and react.
+São pelo menos cinco controllers diferentes, cada um fazendo um pequeno trabalho, encadeados pelo padrão de reconciliação. Nenhum deles conhece os outros. Eles apenas observam mudanças nos objetos com os quais se preocupam e reagem.
 
-### What Happens When a Pod Dies
+### O Que Acontece Quando um Pod Morre
 
-Now suppose a node crashes and takes one of the three pods with it:
+Agora suponha que um node falhe e leve um dos três pods consigo:
 
-1. The **Node controller** detects the node is unresponsive (via missed heartbeats)
-2. It marks the node as `NotReady`
-3. The **ReplicaSet controller** notices there are now only 2 running pods, but the desired count is 3
-4. It creates a new Pod object
-5. The **Scheduler** places it on a healthy node
-6. The **kubelet** starts it
+1. O **Node controller** detecta que o node não está respondendo (via heartbeats perdidos)
+2. Ele marca o node como `NotReady`
+3. O **ReplicaSet controller** percebe que agora há apenas 2 pods rodando, mas a contagem desejada é 3
+4. Ele cria um novo objeto Pod
+5. O **Scheduler** o coloca em um node saudável
+6. O **kubelet** o inicia
 
-You didn't do anything. You didn't get paged. The system healed itself because every controller kept checking: "Does reality match the spec?"
+Você não fez nada. Você não foi acionado. O sistema se auto-curou porque todo controller continuou verificando: "A realidade corresponde à spec?"
 
 ---
 
-## Controllers and the Controller Pattern
+## Controllers e o Padrão Controller
 
-A **controller** is a process that watches the state of your cluster through the API server, then makes changes attempting to move the current state towards the desired state.
+Um **controller** é um processo que observa o estado do seu cluster através do API server, e então faz mudanças tentando mover o estado atual em direção ao estado desejado.
 
-### Built-in Controllers
+### Controllers Embutidos
 
-Kubernetes ships with dozens of controllers, all running inside the `kube-controller-manager` process. Some key ones:
+O Kubernetes vem com dezenas de controllers, todos rodando dentro do processo `kube-controller-manager`. Alguns importantes:
 
-| Controller | Watches | Ensures |
+| Controller | Observa | Garante |
 |------------|---------|---------|
-| Deployment controller | Deployments | Correct ReplicaSets exist for each Deployment |
-| ReplicaSet controller | ReplicaSets | The right number of Pods are running |
-| Node controller | Nodes | Unhealthy nodes are detected and handled |
-| Job controller | Jobs | Pods run to completion for batch workloads |
-| EndpointSlice controller | Services, Pods | Service endpoints point to healthy Pod IPs |
-| ServiceAccount controller | Namespaces | Default ServiceAccount exists in each namespace |
+| Deployment controller | Deployments | ReplicaSets corretos existem para cada Deployment |
+| ReplicaSet controller | ReplicaSets | O número certo de Pods está rodando |
+| Node controller | Nodes | Nodes não saudáveis são detectados e tratados |
+| Job controller | Jobs | Pods rodam até a conclusão para workloads batch |
+| EndpointSlice controller | Services, Pods | Endpoints de Service apontam para IPs de Pods saudáveis |
+| ServiceAccount controller | Namespaces | ServiceAccount padrão existe em cada namespace |
 
-### The Single-Responsibility Principle
+### O Princípio da Responsabilidade Única
 
-Notice how each controller does *one thing*. The Deployment controller doesn't create Pods directly — it creates ReplicaSets, and then the ReplicaSet controller creates Pods. This chain of responsibility is deliberate. It means:
+Note como cada controller faz *uma coisa*. O Deployment controller não cria Pods diretamente — ele cria ReplicaSets, e então o ReplicaSet controller cria Pods. Esta cadeia de responsabilidade é deliberada. Isso significa:
 
-- Each controller is simple and testable
-- You can swap out or extend individual pieces
-- The system is resilient — if one controller is slow, others keep working
+- Cada controller é simples e testável
+- Você pode trocar ou estender peças individuais
+- O sistema é resiliente — se um controller está lento, outros continuam funcionando
 
-This is the same design principle you see in Unix philosophy: do one thing well. `grep` finds text, `sort` orders it, `uniq` deduplicates it. Each tool is simple; the power comes from composition.
+Este é o mesmo princípio de design que você vê na filosofia Unix: faça uma coisa bem. `grep` encontra texto, `sort` ordena, `uniq` deduplica. Cada ferramenta é simples; o poder vem da composição.
 
 ---
 
-## Labels, Selectors, and Annotations
+## Labels, Selectors e Annotations
 
-If controllers are the muscles of Kubernetes, labels and selectors are the nervous system. They're how objects find each other.
+Se controllers são os músculos do Kubernetes, labels e selectors são o sistema nervoso. É assim que objetos encontram uns aos outros.
 
 ### Labels
 
-Labels are key-value pairs attached to any Kubernetes object. They're how you organize, categorize, and select resources.
+Labels são pares chave-valor anexados a qualquer objeto Kubernetes. É como você organiza, categoriza e seleciona recursos.
 
 ```yaml
 metadata:
@@ -179,38 +179,38 @@ metadata:
     version: v2.1.0
 ```
 
-Labels are *freeform* — you define whatever keys and values make sense for your organization. Kubernetes doesn't enforce any schema beyond basic syntax rules (63 characters max for the name segment, alphanumeric characters, dashes, underscores, and dots).
+Labels são *livres* — você define quaisquer chaves e valores que façam sentido para sua organização. O Kubernetes não impõe nenhum esquema além de regras básicas de sintaxe (máximo de 63 caracteres para o segmento do nome, caracteres alfanuméricos, hífens, underscores e pontos).
 
 ### Selectors
 
-Selectors are queries against labels. They're how controllers, Services, and you (via kubectl) find the objects they care about.
+Selectors são consultas contra labels. É como controllers, Services e você (via kubectl) encontram os objetos com os quais se preocupam.
 
-**Equality-based selectors:**
+**Selectors baseados em igualdade:**
 
 ```bash
-# Find all pods in production
+# Encontrar todos os pods em produção
 kubectl get pods -l env=production
 
-# Find all pods NOT in production
+# Encontrar todos os pods que NÃO estão em produção
 kubectl get pods -l env!=production
 ```
 
-**Set-based selectors:**
+**Selectors baseados em conjunto:**
 
 ```bash
-# Find pods in either staging or production
+# Encontrar pods em staging ou produção
 kubectl get pods -l 'env in (staging, production)'
 
-# Find pods with a "team" label (any value)
+# Encontrar pods com um label "team" (qualquer valor)
 kubectl get pods -l team
 
-# Find pods without a "deprecated" label
+# Encontrar pods sem um label "deprecated"
 kubectl get pods -l '!deprecated'
 ```
 
-### How Services Find Pods
+### Como Services Encontram Pods
 
-This is where labels become essential. A Service doesn't know about specific Pods — it uses a selector to find them dynamically:
+É aqui que labels se tornam essenciais. Um Service não conhece Pods específicos — ele usa um selector para encontrá-los dinamicamente:
 
 ```yaml
 apiVersion: v1
@@ -219,126 +219,126 @@ metadata:
   name: web-frontend
 spec:
   selector:
-    app: web-frontend    # "find all Pods with this label"
+    app: web-frontend    # "encontre todos os Pods com este label"
   ports:
   - port: 80
     targetPort: 80
 ```
 
-When a new Pod with `app: web-frontend` appears, the Service automatically includes it. When a Pod with that label is deleted, it's automatically removed. No manual registration. No configuration reload.
+Quando um novo Pod com `app: web-frontend` aparece, o Service automaticamente o inclui. Quando um Pod com esse label é deletado, é automaticamente removido. Sem registro manual. Sem recarregamento de configuração.
 
-Think of it like this: on Linux, you might configure a load balancer with a static list of backend IPs. In Kubernetes, the load balancer (Service) says "send traffic to anything labeled `app: web-frontend`," and the system keeps the list updated in real time.
+Pense assim: no Linux, você pode configurar um load balancer com uma lista estática de IPs de backend. No Kubernetes, o load balancer (Service) diz "envie tráfego para qualquer coisa com label `app: web-frontend`," e o sistema mantém a lista atualizada em tempo real.
 
 ### Annotations
 
-Annotations are also key-value metadata, but with a different purpose. While labels are for *identification and selection*, annotations are for *attaching arbitrary non-identifying metadata*.
+Annotations também são metadados chave-valor, mas com um propósito diferente. Enquanto labels são para *identificação e seleção*, annotations são para *anexar metadados arbitrários não identificadores*.
 
 ```yaml
 metadata:
   annotations:
-    description: "Main customer-facing frontend"
+    description: "Frontend principal voltado ao cliente"
     git-commit: "a1b2c3d4"
     config.kubernetes.io/managed-by: "kustomize"
 ```
 
-Key differences from labels:
+Diferenças-chave em relação a labels:
 
-- Annotations **cannot** be used in selectors
-- Annotation values can be much larger (up to 256KB total per object)
-- They're typically used by tools, controllers, and humans for informational purposes
-- Common uses: build info, git commit hashes, tool configuration, change reasons
+- Annotations **não podem** ser usadas em selectors
+- Valores de annotations podem ser muito maiores (até 256KB total por objeto)
+- São tipicamente usadas por ferramentas, controllers e humanos para fins informativos
+- Usos comuns: informações de build, hashes de commits git, configuração de ferramentas, razões de mudanças
 
-Think of labels as the filing system you use to find documents, and annotations as the sticky notes on the documents with extra context.
+Pense em labels como o sistema de arquivamento que você usa para encontrar documentos, e annotations como post-its nos documentos com contexto extra.
 
 ---
 
 ## Namespaces
 
-Kubernetes namespaces provide a way to divide cluster resources into logically isolated groups. They're one of the first things that trips up Linux professionals, because the name collides with a very different Linux concept.
+Namespaces do Kubernetes fornecem uma maneira de dividir recursos do cluster em grupos logicamente isolados. São uma das primeiras coisas que confundem profissionais de Linux, porque o nome colide com um conceito Linux muito diferente.
 
-### Not Linux Kernel Namespaces
+### Não São Linux Kernel Namespaces
 
-Let's be crystal clear: **Kubernetes namespaces are NOT the same as Linux kernel namespaces.**
+Vamos ser cristalinos: **Kubernetes namespaces NÃO são a mesma coisa que Linux kernel namespaces.**
 
-| Aspect | Linux Kernel Namespaces | Kubernetes Namespaces |
-|--------|------------------------|-----------------------|
-| Purpose | Process-level isolation (PID, network, mount, etc.) | Logical grouping and access control |
-| Scope | Single machine | Entire cluster |
-| Isolation | Hard isolation (processes can't see each other) | Soft isolation (RBAC, resource quotas, network policies) |
-| Mechanism | Kernel-level | API server-level |
+| Aspecto | Linux Kernel Namespaces | Kubernetes Namespaces |
+|---------|------------------------|-----------------------|
+| Propósito | Isolamento em nível de processo (PID, rede, mount, etc.) | Agrupamento lógico e controle de acesso |
+| Escopo | Máquina única | Cluster inteiro |
+| Isolamento | Isolamento rígido (processos não conseguem ver uns aos outros) | Isolamento suave (RBAC, resource quotas, network policies) |
+| Mecanismo | Nível de kernel | Nível de API server |
 
-Linux kernel namespaces make containers possible — they isolate process trees, network stacks, and filesystems at the kernel level. Kubernetes namespaces are a *logical partitioning* mechanism — more like directories in a filesystem than kernel isolation boundaries.
+Linux kernel namespaces tornam containers possíveis — eles isolam árvores de processos, pilhas de rede e sistemas de arquivos no nível do kernel. Kubernetes namespaces são um mecanismo de *particionamento lógico* — mais como diretórios em um sistema de arquivos do que fronteiras de isolamento do kernel.
 
-### What Namespaces Actually Do
+### O Que Namespaces Realmente Fazem
 
-Namespaces provide:
+Namespaces fornecem:
 
-1. **Name scoping** — You can have a Pod named `nginx` in the `staging` namespace and another Pod named `nginx` in the `production` namespace. No conflict.
-2. **Access control boundaries** — RBAC policies can grant permissions per namespace. "Alice can deploy to staging but not production."
-3. **Resource quotas** — You can limit how much CPU, memory, and how many objects a namespace can consume.
-4. **Default settings** — LimitRanges can set default resource requests/limits for all Pods in a namespace.
+1. **Escopo de nomes** — Você pode ter um Pod chamado `nginx` no namespace `staging` e outro Pod chamado `nginx` no namespace `production`. Sem conflito.
+2. **Fronteiras de controle de acesso** — Políticas RBAC podem conceder permissões por namespace. "Alice pode fazer deploy em staging mas não em production."
+3. **Resource quotas** — Você pode limitar quanto de CPU, memória e quantos objetos um namespace pode consumir.
+4. **Configurações padrão** — LimitRanges podem definir requests/limits padrão de recursos para todos os Pods em um namespace.
 
-### Default Namespaces
+### Namespaces Padrão
 
-Every cluster starts with four namespaces:
+Todo cluster começa com quatro namespaces:
 
-| Namespace | Purpose |
+| Namespace | Propósito |
 |-----------|---------|
-| `default` | Where your objects go if you don't specify a namespace |
-| `kube-system` | Kubernetes system components (API server, scheduler, CoreDNS, etc.) |
-| `kube-public` | Publicly readable resources (rarely used directly) |
-| `kube-node-lease` | Node heartbeat leases for failure detection |
+| `default` | Onde seus objetos vão se você não especificar um namespace |
+| `kube-system` | Componentes do sistema Kubernetes (API server, scheduler, CoreDNS, etc.) |
+| `kube-public` | Recursos publicamente legíveis (raramente usado diretamente) |
+| `kube-node-lease` | Leases de heartbeat de nodes para detecção de falhas |
 
-### Working with Namespaces
+### Trabalhando com Namespaces
 
 ```bash
-# List all namespaces
+# Listar todos os namespaces
 kubectl get namespaces
 
-# Create a namespace
+# Criar um namespace
 kubectl create namespace staging
 
-# Deploy to a specific namespace
+# Deploy em um namespace específico
 kubectl apply -f deployment.yaml -n staging
 
-# List pods in a specific namespace
+# Listar pods em um namespace específico
 kubectl get pods -n staging
 
-# List pods in ALL namespaces
+# Listar pods em TODOS os namespaces
 kubectl get pods -A
 
-# Set your default namespace (so you don't have to type -n every time)
+# Definir seu namespace padrão (para não precisar digitar -n toda vez)
 kubectl config set-context --current --namespace=staging
 ```
 
-### When to Use Namespaces
+### Quando Usar Namespaces
 
-Good use cases:
+Bons casos de uso:
 
-- **Per-environment**: `staging`, `production`, `dev`
-- **Per-team**: `team-platform`, `team-payments`
-- **Per-application**: `app-frontend`, `app-backend` (in larger organizations)
+- **Por ambiente**: `staging`, `production`, `dev`
+- **Por equipe**: `team-platform`, `team-payments`
+- **Por aplicação**: `app-frontend`, `app-backend` (em organizações maiores)
 
-You do *not* need namespaces for every small difference. Different versions of the same app? Use labels, not namespaces. The official documentation is explicit: "For clusters with a few to tens of users, you should not need to create or think about namespaces at all."
+Você *não* precisa de namespaces para cada pequena diferença. Diferentes versões da mesma aplicação? Use labels, não namespaces. A documentação oficial é explícita: "Para clusters com poucos a dezenas de usuários, você não deveria precisar criar ou pensar sobre namespaces."
 
 ---
 
-## Scheduling Fundamentals
+## Fundamentos de Scheduling
 
-The **kube-scheduler** is the component that decides which node a Pod runs on. Every time a new Pod is created without a node assignment, the scheduler picks one.
+O **kube-scheduler** é o componente que decide em qual node um Pod roda. Toda vez que um novo Pod é criado sem atribuição de node, o scheduler escolhe um.
 
-On Linux, you might use `taskset` to pin a process to specific CPUs, or `nice` to adjust priority. Kubernetes scheduling is the cluster-level equivalent — but instead of CPUs on one machine, you're choosing among nodes in a cluster.
+No Linux, você pode usar `taskset` para fixar um processo em CPUs específicas, ou `nice` para ajustar a prioridade. O scheduling do Kubernetes é o equivalente em nível de cluster — mas em vez de CPUs em uma máquina, você está escolhendo entre nodes em um cluster.
 
-### How the Scheduler Decides
+### Como o Scheduler Decide
 
-The scheduler works in two phases:
+O scheduler trabalha em duas fases:
 
-1. **Filtering** — Eliminate nodes that can't run the Pod (not enough resources, wrong labels, taints that aren't tolerated)
-2. **Scoring** — Rank the remaining nodes and pick the best one (most resources available, best spread, etc.)
+1. **Filtragem** — Eliminar nodes que não podem rodar o Pod (recursos insuficientes, labels errados, taints não tolerados)
+2. **Pontuação** — Classificar os nodes restantes e escolher o melhor (mais recursos disponíveis, melhor distribuição, etc.)
 
-### Resource Requests and Limits
+### Resource Requests e Limits
 
-When you define a Pod, you can specify how much CPU and memory it needs:
+Quando você define um Pod, pode especificar quanto de CPU e memória ele precisa:
 
 ```yaml
 resources:
@@ -350,14 +350,14 @@ resources:
     cpu: "500m"
 ```
 
-- **Requests** are what the scheduler uses for placement. "This Pod needs at least 128Mi of memory and 250m of CPU." The scheduler only places the Pod on a node that has enough *unrequested* resources.
-- **Limits** are the maximum the Pod is allowed to consume. If a container exceeds its memory limit, it gets OOM-killed. If it exceeds its CPU limit, it gets throttled.
+- **Requests** são o que o scheduler usa para posicionamento. "Este Pod precisa de pelo menos 128Mi de memória e 250m de CPU." O scheduler só coloca o Pod em um node que tenha recursos *não requisitados* suficientes.
+- **Limits** são o máximo que o Pod pode consumir. Se um container exceder seu limit de memória, ele sofre OOM-kill. Se exceder seu limit de CPU, ele é limitado (throttled).
 
-This maps directly to Linux cgroups. Under the hood, the kubelet translates requests and limits into cgroup settings on the node. Requests become cgroup reservations; limits become cgroup hard caps.
+Isso mapeia diretamente para cgroups do Linux. Por baixo dos panos, o kubelet traduz requests e limits em configurações de cgroup no node. Requests se tornam reservas de cgroup; limits se tornam limites rígidos de cgroup.
 
 ### Node Affinity
 
-Node affinity lets you constrain which nodes a Pod can be scheduled on, based on node labels.
+Node affinity permite restringir em quais nodes um Pod pode ser agendado, com base em labels do node.
 
 ```yaml
 spec:
@@ -372,20 +372,20 @@ spec:
             - ssd
 ```
 
-This says: "Only schedule this Pod on nodes labeled `disktype=ssd`." It's the Kubernetes equivalent of Linux's `taskset`, but instead of pinning to CPUs, you're pinning to nodes with specific characteristics.
+Isso diz: "Só agende este Pod em nodes com label `disktype=ssd`." É o equivalente Kubernetes do `taskset` do Linux, mas em vez de fixar em CPUs, você está fixando em nodes com características específicas.
 
-There's also `preferredDuringSchedulingIgnoredDuringExecution`, which is a soft preference rather than a hard requirement — the scheduler will *try* to honor it but won't fail if it can't.
+Existe também `preferredDuringSchedulingIgnoredDuringExecution`, que é uma preferência suave em vez de um requisito rígido — o scheduler *tentará* honrá-la mas não falhará se não conseguir.
 
-### Taints and Tolerations
+### Taints e Tolerations
 
-Taints are the *opposite* of affinity — they let a node *repel* Pods.
+Taints são o *oposto* da affinity — elas permitem que um node *repila* Pods.
 
 ```bash
-# Taint a node: "this node is for GPU workloads only"
+# Aplicar taint em um node: "este node é apenas para workloads GPU"
 kubectl taint nodes gpu-node-1 workload=gpu:NoSchedule
 ```
 
-Now, only Pods with a matching toleration can be scheduled there:
+Agora, apenas Pods com uma toleration correspondente podem ser agendados ali:
 
 ```yaml
 spec:
@@ -396,19 +396,19 @@ spec:
     effect: "NoSchedule"
 ```
 
-Think of it like a VIP section at a venue. The taint is the velvet rope (keeps everyone out by default), and the toleration is the VIP pass (lets specific Pods through).
+Pense nisso como uma área VIP em um evento. A taint é a corda de veludo (mantém todos fora por padrão), e a toleration é o passe VIP (permite que Pods específicos entrem).
 
-Taint effects include:
+Os efeitos de taint incluem:
 
-| Effect | Behavior |
+| Efeito | Comportamento |
 |--------|----------|
-| `NoSchedule` | New Pods without a matching toleration won't be scheduled on this node |
-| `PreferNoSchedule` | Scheduler will *try* to avoid this node, but it's not guaranteed |
-| `NoExecute` | Existing Pods without a matching toleration are evicted; new ones aren't scheduled |
+| `NoSchedule` | Novos Pods sem uma toleration correspondente não serão agendados neste node |
+| `PreferNoSchedule` | O scheduler *tentará* evitar este node, mas não é garantido |
+| `NoExecute` | Pods existentes sem uma toleration correspondente são removidos; novos não são agendados |
 
 ### Topology Spread Constraints
 
-Topology spread constraints ensure your Pods are distributed evenly across failure domains (nodes, zones, regions):
+Topology spread constraints garantem que seus Pods sejam distribuídos uniformemente entre domínios de falha (nodes, zonas, regiões):
 
 ```yaml
 spec:
@@ -421,49 +421,49 @@ spec:
         app: web-frontend
 ```
 
-This says: "The difference in the number of `web-frontend` Pods between any two zones should be at most 1." If zone A has 3 Pods and zone B has 2, the next Pod goes to zone B.
+Isso diz: "A diferença no número de Pods `web-frontend` entre quaisquer duas zonas deve ser no máximo 1." Se a zona A tem 3 Pods e a zona B tem 2, o próximo Pod vai para a zona B.
 
-There's no direct Linux equivalent for this — it's a cluster-wide concern that doesn't exist on a single machine.
+Não existe um equivalente direto no Linux para isso — é uma preocupação em nível de cluster que não existe em uma única máquina.
 
 ---
 
-## Linux ↔ K8s Comparison Table
+## Tabela Comparativa Linux ↔ K8s
 
-| Linux Concept | K8s Equivalent | Key Difference |
+| Conceito Linux | Equivalente K8s | Diferença-Chave |
 |---------------|----------------|----------------|
-| `systemd Restart=always` | Controller reconciliation loop | K8s controllers manage across nodes, not just locally on one machine |
-| `/etc/systemd/system/*.service` | YAML manifests | Declarative desired state stored in etcd, versioned and auditable |
-| File labels (SELinux contexts) | Labels + Selectors | Labels are freeform key-value pairs; selectors query them dynamically |
-| Linux kernel namespaces | K8s Namespaces | K8s namespaces are logical/RBAC boundaries, not kernel-level process isolation |
-| `nice`/`renice`, cgroups | Resource requests/limits | Scheduler uses requests for node placement decisions; kubelet enforces limits via cgroups |
-| `/etc/hosts`, config file comments | Annotations | Metadata attached to objects; structured key-value but not queryable for selection |
-| CPU affinity (`taskset`) | Node affinity / nodeSelector | Constrains where workloads run based on node labels, not CPU IDs |
+| `systemd Restart=always` | Reconciliation loop do controller | Controllers do K8s gerenciam entre nodes, não apenas localmente em uma máquina |
+| `/etc/systemd/system/*.service` | Manifestos YAML | Desired state declarativo armazenado no etcd, versionado e auditável |
+| File labels (contextos SELinux) | Labels + Selectors | Labels são pares chave-valor livres; selectors os consultam dinamicamente |
+| Linux kernel namespaces | Namespaces do K8s | Namespaces do K8s são fronteiras lógicas/RBAC, não isolamento de processos em nível de kernel |
+| `nice`/`renice`, cgroups | Resource requests/limits | O scheduler usa requests para decisões de posicionamento em nodes; o kubelet aplica limits via cgroups |
+| `/etc/hosts`, comentários em arquivos de config | Annotations | Metadados anexados a objetos; chave-valor estruturado mas não consultável para seleção |
+| CPU affinity (`taskset`) | Node affinity / nodeSelector | Restringe onde workloads rodam com base em labels de nodes, não IDs de CPU |
 
 ---
 
-> **Where the Linux Analogy Breaks**
+> **Onde a Analogia com Linux Quebra**
 >
-> **Eventual consistency, not immediate execution.** Linux is immediate: you run a command, it happens now. Kubernetes is eventually consistent — you submit a desired state, and controllers work toward it asynchronously. You might wait seconds or minutes for the system to converge. This isn't a bug; it's the design. Distributed systems *must* be eventually consistent.
+> **Consistência eventual, não execução imediata.** Linux é imediato: você executa um comando, ele acontece agora. Kubernetes é eventualmente consistente — você submete um desired state, e controllers trabalham em direção a ele assincronamente. Você pode esperar segundos ou minutos para o sistema convergir. Isso não é um bug; é o design. Sistemas distribuídos *devem* ser eventualmente consistentes.
 >
-> **The manifest is the source of truth, not the running state.** There's no "SSH in and fix it" escape hatch for normal operations. If you manually modify a running Pod (say, installing a package via `kubectl exec`), the controller will overwrite your changes the next time it recreates the Pod. The YAML manifest in version control is the only source of truth. If it's not in the manifest, it doesn't exist.
+> **O manifesto é a fonte da verdade, não o estado em execução.** Não existe um "SSH e conserte" como escape para operações normais. Se você modificar manualmente um Pod em execução (digamos, instalando um pacote via `kubectl exec`), o controller sobrescreverá suas mudanças na próxima vez que recriar o Pod. O manifesto YAML no controle de versão é a única fonte da verdade. Se não está no manifesto, não existe.
 >
-> **Labels are flat, not hierarchical.** Labels aren't organized like a filesystem hierarchy — they're flat key-value pairs. The power comes from flexible selector queries (equality-based, set-based), not from nested directory structures. You can't do `labels/env/staging` — you do `env=staging` and query with `-l env=staging`.
+> **Labels são planas, não hierárquicas.** Labels não são organizadas como uma hierarquia de sistema de arquivos — são pares chave-valor planos. O poder vem de consultas flexíveis com selectors (baseadas em igualdade, baseadas em conjunto), não de estruturas de diretório aninhadas. Você não pode fazer `labels/env/staging` — você faz `env=staging` e consulta com `-l env=staging`.
 
 ---
 
-## Diagnostic Lab: Reconciliation, Labels, Namespaces, and Scheduling
+## Laboratório Diagnóstico: Reconciliação, Labels, Namespaces e Scheduling
 
-This lab demonstrates the core concepts from this chapter using a Kind cluster.
+Este laboratório demonstra os conceitos centrais deste capítulo usando um cluster Kind.
 
-### Prerequisites
+### Pré-requisitos
 
-Make sure you have a Kind cluster running:
+Certifique-se de ter um cluster Kind rodando:
 
 ```bash
 kind create cluster --name chapter04
 ```
 
-Verify it's ready:
+Verifique se está pronto:
 
 ```bash
 kubectl cluster-info --context kind-chapter04
@@ -471,119 +471,119 @@ kubectl cluster-info --context kind-chapter04
 
 ---
 
-### Part 1: Watch the Reconciliation Loop in Action
+### Parte 1: Observe o Reconciliation Loop em Ação
 
-**Step 1 — Create a Deployment with 3 replicas:**
+**Passo 1 — Crie um Deployment com 3 réplicas:**
 
 ```bash
 kubectl create deployment nginx --image=nginx:1.27 --replicas=3
 ```
 
-**Step 2 — Verify the Pods are running:**
+**Passo 2 — Verifique que os Pods estão rodando:**
 
 ```bash
 kubectl get pods -l app=nginx
 ```
 
-You should see 3 Pods in `Running` state.
+Você deve ver 3 Pods no estado `Running`.
 
-**Step 3 — Delete a Pod and watch it come back:**
+**Passo 3 — Delete um Pod e observe-o voltar:**
 
 ```bash
-# Pick one of the Pod names from the output above
+# Escolha um dos nomes de Pod da saída acima
 kubectl delete pod $(kubectl get pods -l app=nginx -o jsonpath='{.items[0].metadata.name}')
 ```
 
-Immediately check:
+Verifique imediatamente:
 
 ```bash
 kubectl get pods -l app=nginx
 ```
 
-You'll see a new Pod with a different name being created (or already running). The ReplicaSet controller noticed the count dropped to 2 and created a replacement. This is the reconciliation loop in action.
+Você verá um novo Pod com um nome diferente sendo criado (ou já rodando). O ReplicaSet controller percebeu que a contagem caiu para 2 e criou um substituto. Este é o reconciliation loop em ação.
 
-**Step 4 — Scale to 5 replicas:**
+**Passo 4 — Escale para 5 réplicas:**
 
 ```bash
 kubectl scale deployment nginx --replicas=5
 ```
 
-Watch the new Pods appear:
+Observe os novos Pods aparecerem:
 
 ```bash
 kubectl get pods -l app=nginx -w
 ```
 
-Press `Ctrl+C` once all 5 are Running.
+Pressione `Ctrl+C` quando todos os 5 estiverem Running.
 
-**Step 5 — View the events that tell the reconciliation story:**
+**Passo 5 — Veja os eventos que contam a história da reconciliação:**
 
 ```bash
 kubectl get events --sort-by=.metadata.creationTimestamp
 ```
 
-You'll see events from the Deployment controller (scaling), the ReplicaSet controller (creating Pods), the Scheduler (assigning Pods to nodes), and the kubelet (pulling images, starting containers).
+Você verá eventos do Deployment controller (escalando), do ReplicaSet controller (criando Pods), do Scheduler (atribuindo Pods a nodes) e do kubelet (baixando imagens, iniciando containers).
 
 ---
 
-### Part 2: Labels and Selectors
+### Parte 2: Labels e Selectors
 
-**Step 1 — Inspect existing labels:**
+**Passo 1 — Inspecione labels existentes:**
 
 ```bash
 kubectl get pods --show-labels
 ```
 
-Every Pod created by the Deployment already has `app=nginx` — that's how the ReplicaSet finds its Pods.
+Todo Pod criado pelo Deployment já tem `app=nginx` — é assim que o ReplicaSet encontra seus Pods.
 
-**Step 2 — Add custom labels:**
+**Passo 2 — Adicione labels personalizados:**
 
 ```bash
-# Label two pods as staging
+# Rotule dois pods como staging
 POD1=$(kubectl get pods -l app=nginx -o jsonpath='{.items[0].metadata.name}')
 POD2=$(kubectl get pods -l app=nginx -o jsonpath='{.items[1].metadata.name}')
 kubectl label pod $POD1 env=staging
 kubectl label pod $POD2 env=staging
 
-# Label the rest as production
+# Rotule o restante como production
 kubectl label pod $(kubectl get pods -l app=nginx -o jsonpath='{.items[2].metadata.name}') env=production
 kubectl label pod $(kubectl get pods -l app=nginx -o jsonpath='{.items[3].metadata.name}') env=production
 kubectl label pod $(kubectl get pods -l app=nginx -o jsonpath='{.items[4].metadata.name}') env=production
 ```
 
-**Step 3 — Query by label:**
+**Passo 3 — Consulte por label:**
 
 ```bash
-# All staging pods
+# Todos os pods de staging
 kubectl get pods -l env=staging
 
-# All production pods
+# Todos os pods de production
 kubectl get pods -l env=production
 
-# All pods with an "env" label (any value)
+# Todos os pods com um label "env" (qualquer valor)
 kubectl get pods -l env
 
-# Pods that are BOTH nginx AND production
+# Pods que são TANTO nginx QUANTO production
 kubectl get pods -l app=nginx,env=production
 ```
 
-**Step 4 — See how a Service uses selectors:**
+**Passo 4 — Veja como um Service usa selectors:**
 
-Create a Service that selects only production Pods:
+Crie um Service que seleciona apenas Pods de produção:
 
 ```bash
 kubectl expose deployment nginx --port=80 --name=nginx-prod --type=ClusterIP --overrides='{"spec":{"selector":{"app":"nginx","env":"production"}}}'
 ```
 
-Check which Pods the Service selected:
+Verifique quais Pods o Service selecionou:
 
 ```bash
 kubectl describe svc nginx-prod | grep Endpoints
 ```
 
-You should see only the IPs of the 3 production-labeled Pods.
+Você deve ver apenas os IPs dos 3 Pods com label de produção.
 
-Clean up the Service:
+Limpe o Service:
 
 ```bash
 kubectl delete svc nginx-prod
@@ -591,52 +591,52 @@ kubectl delete svc nginx-prod
 
 ---
 
-### Part 3: Namespace Isolation
+### Parte 3: Isolamento por Namespace
 
-**Step 1 — Create two namespaces:**
+**Passo 1 — Crie dois namespaces:**
 
 ```bash
 kubectl create namespace team-alpha
 kubectl create namespace team-beta
 ```
 
-**Step 2 — Deploy the same app in both:**
+**Passo 2 — Faça deploy da mesma aplicação em ambos:**
 
 ```bash
 kubectl create deployment web --image=nginx:1.27 -n team-alpha
 kubectl create deployment web --image=nginx:1.27 -n team-beta
 ```
 
-**Step 3 — Show they're independent:**
+**Passo 3 — Mostre que são independentes:**
 
 ```bash
-# Each namespace has its own "web" deployment
+# Cada namespace tem seu próprio deployment "web"
 kubectl get deployments -n team-alpha
 kubectl get deployments -n team-beta
 
-# Pods have different names and IPs
+# Pods têm nomes e IPs diferentes
 kubectl get pods -o wide -n team-alpha
 kubectl get pods -o wide -n team-beta
 ```
 
-**Step 4 — Demonstrate name scoping:**
+**Passo 4 — Demonstre o escopo de nomes:**
 
 ```bash
-# This works — "web" exists in both namespaces independently
+# Isso funciona — "web" existe em ambos os namespaces independentemente
 kubectl get deployment web -n team-alpha
 kubectl get deployment web -n team-beta
 
-# But in the default namespace, there's no "web"
+# Mas no namespace default, não existe "web"
 kubectl get deployment web 2>&1 || true
 ```
 
-**Step 5 — View all namespaces at once:**
+**Passo 5 — Visualize todos os namespaces de uma vez:**
 
 ```bash
 kubectl get pods -A | grep web
 ```
 
-Clean up:
+Limpe:
 
 ```bash
 kubectl delete namespace team-alpha
@@ -645,23 +645,23 @@ kubectl delete namespace team-beta
 
 ---
 
-### Part 4: Scheduling Decisions
+### Parte 4: Decisões de Scheduling
 
-**Step 1 — Describe a pod to see scheduler events:**
+**Passo 1 — Descreva um pod para ver eventos do scheduler:**
 
 ```bash
 kubectl describe pod $(kubectl get pods -l app=nginx -o jsonpath='{.items[0].metadata.name}')
 ```
 
-Look at the `Events` section at the bottom. You'll see entries like:
+Olhe a seção `Events` no final. Você verá entradas como:
 
 ```
 Successfully assigned default/nginx-xxx to chapter04-control-plane
 ```
 
-This tells you the Scheduler made a placement decision and assigned the Pod to a node.
+Isso indica que o Scheduler tomou uma decisão de posicionamento e atribuiu o Pod a um node.
 
-**Step 2 — Create a Pod with an unsatisfiable nodeSelector:**
+**Passo 2 — Crie um Pod com um nodeSelector insatisfazível:**
 
 ```bash
 kubectl apply -f - <<EOF
@@ -678,43 +678,43 @@ spec:
 EOF
 ```
 
-**Step 3 — Watch the Pod stay Pending:**
+**Passo 3 — Observe o Pod ficar Pending:**
 
 ```bash
 kubectl get pod picky-pod
 ```
 
-You'll see `STATUS: Pending`. The scheduler can't find a node with `disktype=nvme`.
+Você verá `STATUS: Pending`. O scheduler não consegue encontrar um node com `disktype=nvme`.
 
-Check the events:
+Verifique os eventos:
 
 ```bash
 kubectl describe pod picky-pod | tail -5
 ```
 
-You'll see a warning like:
+Você verá um aviso como:
 
 ```
 0/1 nodes are available: 1 node(s) didn't match Pod's node affinity/selector.
 ```
 
-**Step 4 — Fix it by labeling the node:**
+**Passo 4 — Corrija rotulando o node:**
 
 ```bash
-# Label the node
+# Rotule o node
 kubectl label node chapter04-control-plane disktype=nvme
 
-# Watch the Pod get scheduled
+# Observe o Pod ser agendado
 kubectl get pod picky-pod -w
 ```
 
-The Pod should transition from `Pending` to `ContainerCreating` to `Running`.
+O Pod deve transicionar de `Pending` para `ContainerCreating` para `Running`.
 
-Press `Ctrl+C` once it's Running.
+Pressione `Ctrl+C` quando estiver Running.
 
 ---
 
-### Clean Up
+### Limpeza
 
 ```bash
 kubectl delete pod picky-pod
@@ -724,25 +724,25 @@ kind delete cluster --name chapter04
 
 ---
 
-## Key Takeaways
+## Pontos-Chave
 
-1. **Kubernetes is a desired-state system.** You declare what you want in a manifest, and controllers continuously reconcile reality to match. You don't tell it *how* — you tell it *what*.
+1. **Kubernetes é um sistema de desired state.** Você declara o que quer em um manifesto, e controllers continuamente reconciliam a realidade para corresponder. Você não diz *como* — você diz *o quê*.
 
-2. **The reconciliation loop (Watch → Diff → Act) is the core algorithm.** Every controller runs this loop forever. When you internalize this pattern, all of Kubernetes makes sense.
+2. **O reconciliation loop (Watch → Diff → Act) é o algoritmo central.** Todo controller executa esse loop eternamente. Quando você internaliza esse padrão, todo o Kubernetes faz sentido.
 
-3. **Controllers follow the single-responsibility principle.** Each controller manages one resource type. Complex behaviors emerge from chains of simple controllers reacting to each other's changes.
+3. **Controllers seguem o princípio da responsabilidade única.** Cada controller gerencia um tipo de recurso. Comportamentos complexos emergem de cadeias de controllers simples reagindo às mudanças uns dos outros.
 
-4. **Labels and selectors are the glue connecting objects.** Services find Pods via selectors. ReplicaSets track their Pods via selectors. Your queries use selectors. Master labels, and you master Kubernetes organization.
+4. **Labels e selectors são a cola que conecta objetos.** Services encontram Pods via selectors. ReplicaSets rastreiam seus Pods via selectors. Suas consultas usam selectors. Domine labels, e você domina a organização do Kubernetes.
 
-5. **Kubernetes namespaces are NOT Linux kernel namespaces.** They're logical partitions for organization, access control, and resource quotas — not kernel-level process isolation.
+5. **Kubernetes namespaces NÃO são Linux kernel namespaces.** São partições lógicas para organização, controle de acesso e resource quotas — não isolamento de processos em nível de kernel.
 
-6. **The scheduler uses resource requests for placement decisions.** Always set resource requests on your Pods. Without them, the scheduler is flying blind and you'll hit resource contention issues.
+6. **O scheduler usa resource requests para decisões de posicionamento.** Sempre defina resource requests em seus Pods. Sem eles, o scheduler está voando às cegas e você terá problemas de contenção de recursos.
 
-7. **Taints repel Pods; tolerations are the exception pass.** Use taints and tolerations to dedicate nodes for specific workloads (GPU nodes, high-memory nodes) while keeping everything else away.
+7. **Taints repelem Pods; tolerations são o passe de exceção.** Use taints e tolerations para dedicar nodes a workloads específicos (nodes GPU, nodes de alta memória) enquanto mantém todo o resto longe.
 
 ---
 
-## Further Reading
+## Leitura Adicional
 
 - [Kubernetes Controllers](https://kubernetes.io/docs/concepts/architecture/controller/)
 - [Labels and Selectors](https://kubernetes.io/docs/concepts/overview/working-with-objects/labels/)
@@ -755,5 +755,5 @@ kind delete cluster --name chapter04
 
 ---
 
-**Previous:** [Chapter 3 — Kubernetes Architecture](03-kubernetes-architecture.md)
-**Next:** [Chapter 5 — Your First Cluster](05-your-first-cluster.md)
+**Anterior:** [Capítulo 3 — Arquitetura do Kubernetes](03-kubernetes-architecture.md)
+**Próximo:** [Capítulo 5 — Seu Primeiro Cluster](05-your-first-cluster.md)

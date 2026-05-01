@@ -1,38 +1,38 @@
-# Chapter 11: Security
+# Capítulo 11: Segurança
 
-*"The only truly secure system is one that is powered off, cast in a block of concrete, and sealed in a lead-lined room with armed guards — and even then I have my doubts."*
+*"O único sistema verdadeiramente seguro é aquele que está desligado, envolto em um bloco de concreto, e selado em uma sala forrada de chumbo com guardas armados — e mesmo assim eu tenho minhas dúvidas."*
 — Gene Spafford
 
 ---
 
-## From chmod to RBAC: Same Goal, Different Scale
+## De chmod a RBAC: Mesmo Objetivo, Escala Diferente
 
-On a Linux server, security is physical and intimate. You know who has root access because you manage `/etc/passwd` and `/etc/shadow`. You control what processes can do with file permissions (`chmod 640`), what users can execute with `sudoers`, and what network traffic is allowed with `iptables`. Every security decision comes down to the same three questions: **who** is requesting access, **what** are they trying to do, and **to which resource**?
+Em um servidor Linux, a segurança é física e íntima. Você sabe quem tem acesso root porque gerencia o `/etc/passwd` e `/etc/shadow`. Você controla o que processos podem fazer com permissões de arquivo (`chmod 640`), o que usuários podem executar com `sudoers`, e qual tráfego de rede é permitido com `iptables`. Toda decisão de segurança se resume às mesmas três perguntas: **quem** está solicitando acesso, **o que** estão tentando fazer, e **em qual recurso**?
 
-Kubernetes asks the exact same three questions — but at cluster scale.
+O Kubernetes faz exatamente as mesmas três perguntas — mas em escala de cluster.
 
-Instead of Linux users, you have **ServiceAccounts** — identities that pods use to authenticate against the API server. Instead of `/etc/sudoers`, you have **Roles** and **ClusterRoles** — YAML manifests that define which API verbs (get, list, create, delete) are permitted on which resources (pods, services, secrets). Instead of adding a user to the `sudo` group, you create a **RoleBinding** that attaches a Role to a ServiceAccount.
+Em vez de usuários Linux, você tem **ServiceAccounts** — identidades que pods usam para se autenticar no API server. Em vez de `/etc/sudoers`, você tem **Roles** e **ClusterRoles** — manifestos YAML que definem quais verbos de API (get, list, create, delete) são permitidos em quais recursos (pods, services, secrets). Em vez de adicionar um usuário ao grupo `sudo`, você cria um **RoleBinding** que vincula uma Role a uma ServiceAccount.
 
-The mental model is the same: *who can do what to which resources.* The mechanism is different because Kubernetes is an API-driven distributed system, not a single machine with a filesystem. Every action flows through the API server, and every request is authenticated, authorized, and admitted (or rejected) before anything happens.
+O modelo mental é o mesmo: *quem pode fazer o que em quais recursos.* O mecanismo é diferente porque o Kubernetes é um sistema distribuído orientado a API, não uma única máquina com um sistema de arquivos. Toda ação passa pelo API server, e toda requisição é autenticada, autorizada e admitida (ou rejeitada) antes de qualquer coisa acontecer.
 
-For a Linux admin, the good news is that your security instincts — least privilege, defense in depth, explicit deny — all apply. You just need to learn the Kubernetes vocabulary.
+Para um administrador Linux, a boa notícia é que seus instintos de segurança — menor privilégio, defesa em profundidade, negação explícita — todos se aplicam. Você só precisa aprender o vocabulário Kubernetes.
 
 ---
 
-## RBAC: Role-Based Access Control
+## RBAC: Controle de Acesso Baseado em Funções
 
-RBAC is the authorization backbone of Kubernetes. It was promoted to GA in Kubernetes 1.8 and is enabled by default on every modern cluster. If you understand Linux users, groups, and sudoers, you already understand the conceptual foundation.
+RBAC é a espinha dorsal de autorização do Kubernetes. Foi promovido a GA no Kubernetes 1.8 e está habilitado por padrão em todo cluster moderno. Se você entende usuários, grupos e sudoers do Linux, já compreende a base conceitual.
 
-### ServiceAccounts — Identity for Pods
+### ServiceAccounts — Identidade para Pods
 
-Every pod in Kubernetes runs with a ServiceAccount. If you don't specify one, it uses the `default` ServiceAccount in the namespace. Think of ServiceAccounts as system users in Linux — they're identities for processes, not people.
+Todo pod no Kubernetes roda com uma ServiceAccount. Se você não especificar uma, ele usa a ServiceAccount `default` no namespace. Pense em ServiceAccounts como usuários de sistema no Linux — são identidades para processos, não pessoas.
 
 ```bash
-# Every namespace gets a 'default' ServiceAccount automatically
+# Todo namespace recebe uma ServiceAccount 'default' automaticamente
 kubectl get serviceaccounts
 ```
 
-The critical thing: the `default` ServiceAccount often has more permissions than you'd expect, especially in older clusters. The first rule of Kubernetes security is **don't use the default ServiceAccount for production workloads.** Create dedicated ServiceAccounts with only the permissions each workload needs.
+O ponto crítico: a ServiceAccount `default` frequentemente tem mais permissões do que você esperaria, especialmente em clusters mais antigos. A primeira regra de segurança do Kubernetes é **não usar a ServiceAccount default para workloads de produção.** Crie ServiceAccounts dedicadas com apenas as permissões que cada workload precisa.
 
 ```yaml
 apiVersion: v1
@@ -42,26 +42,26 @@ metadata:
   namespace: default
 ```
 
-### Roles and ClusterRoles — Permission Definitions
+### Roles e ClusterRoles — Definições de Permissão
 
-A **Role** defines what actions are permitted on which resources, scoped to a single namespace. A **ClusterRole** does the same but across the entire cluster.
+Uma **Role** define quais ações são permitidas em quais recursos, com escopo para um único namespace. Uma **ClusterRole** faz o mesmo mas em todo o cluster.
 
 ```yaml
-# A Role that permits read-only access to pods in a namespace
+# Uma Role que permite acesso somente leitura a pods em um namespace
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
   namespace: default
   name: pod-reader
 rules:
-- apiGroups: [""]            # "" = core API group
+- apiGroups: [""]            # "" = grupo de API core
   resources: ["pods"]
   verbs: ["get", "list", "watch"]
 ```
 
-Think of this as a sudoers rule: "This identity can run `get`, `list`, and `watch` on pods in the default namespace." No create, no delete, no update.
+Pense nisso como uma regra sudoers: "Esta identidade pode executar `get`, `list` e `watch` em pods no namespace default." Sem create, sem delete, sem update.
 
-A **ClusterRole** works the same way but without namespace scoping:
+Uma **ClusterRole** funciona da mesma forma mas sem escopo de namespace:
 
 ```yaml
 apiVersion: rbac.authorization.k8s.io/v1
@@ -74,12 +74,12 @@ rules:
   verbs: ["get", "list"]
 ```
 
-### RoleBindings and ClusterRoleBindings — Attaching Permissions
+### RoleBindings e ClusterRoleBindings — Vinculando Permissões
 
-Roles define permissions. Bindings attach those permissions to identities. A **RoleBinding** grants a Role within a specific namespace. A **ClusterRoleBinding** grants a ClusterRole across all namespaces.
+Roles definem permissões. Bindings vinculam essas permissões a identidades. Um **RoleBinding** concede uma Role dentro de um namespace específico. Um **ClusterRoleBinding** concede uma ClusterRole em todos os namespaces.
 
 ```yaml
-# Bind the pod-reader Role to the my-app ServiceAccount
+# Vincular a Role pod-reader à ServiceAccount my-app
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
@@ -95,82 +95,82 @@ roleRef:
   apiGroup: rbac.authorization.k8s.io
 ```
 
-The `subjects` list is *who* gets the permission. The `roleRef` is *which* permission set. You can bind the same Role to multiple ServiceAccounts, or bind multiple Roles to the same ServiceAccount via separate RoleBindings.
+A lista `subjects` é *quem* recebe a permissão. O `roleRef` é *qual* conjunto de permissões. Você pode vincular a mesma Role a múltiplas ServiceAccounts, ou vincular múltiplas Roles à mesma ServiceAccount via RoleBindings separados.
 
-### Built-in Roles
+### Roles Integradas
 
-Kubernetes ships with several default ClusterRoles that cover common use cases:
+O Kubernetes vem com várias ClusterRoles padrão que cobrem casos de uso comuns:
 
-| ClusterRole | Permissions | Linux Equivalent |
+| ClusterRole | Permissões | Equivalente Linux |
 |-------------|------------|------------------|
-| `cluster-admin` | Everything, everywhere | `root` |
-| `admin` | Full access within a namespace (including RBAC) | Namespace-level `sudo` |
-| `edit` | Read/write most resources, but no RBAC | Power user |
-| `view` | Read-only access to most resources | Audit / read-only user |
+| `cluster-admin` | Tudo, em todos os lugares | `root` |
+| `admin` | Acesso total dentro de um namespace (incluindo RBAC) | `sudo` no nível de namespace |
+| `edit` | Leitura/escrita na maioria dos recursos, mas sem RBAC | Usuário avançado |
+| `view` | Acesso somente leitura na maioria dos recursos | Usuário de auditoria / somente leitura |
 
-**The principle of least privilege applies.** Don't hand out `cluster-admin` when `view` will do. Every over-permissioned ServiceAccount is a potential blast radius expansion.
+**O princípio do menor privilégio se aplica.** Não distribua `cluster-admin` quando `view` é suficiente. Toda ServiceAccount com permissões excessivas é uma potencial expansão do raio de explosão.
 
 ---
 
 ## Pod Security Admission (PSA)
 
-If RBAC controls *who can create workloads*, Pod Security Admission controls *what kind of workloads can run*. It's the Kubernetes equivalent of AppArmor or SELinux profiles — restrictions on what a process (pod) is allowed to do at runtime.
+Se RBAC controla *quem pode criar workloads*, Pod Security Admission controla *que tipo de workloads podem rodar*. É o equivalente Kubernetes dos perfis AppArmor ou SELinux — restrições sobre o que um processo (pod) pode fazer em tempo de execução.
 
-### A Brief History
+### Um Breve Histórico
 
-Kubernetes previously used PodSecurityPolicies (PSPs) for this purpose. PSPs were deprecated in Kubernetes 1.21 and **removed entirely in Kubernetes 1.25**. The replacement is the built-in Pod Security Admission controller, which is simpler, namespace-scoped, and uses predefined security profiles.
+O Kubernetes anteriormente usava PodSecurityPolicies (PSPs) para este propósito. PSPs foram descontinuadas no Kubernetes 1.21 e **removidas completamente no Kubernetes 1.25**. A substituição é o controlador Pod Security Admission integrado, que é mais simples, com escopo de namespace, e usa perfis de segurança predefinidos.
 
-### Three Security Levels
+### Três Níveis de Segurança
 
-Pod Security Admission defines three progressively restrictive profiles, called **Pod Security Standards**:
+Pod Security Admission define três perfis progressivamente restritivos, chamados **Pod Security Standards**:
 
-| Level | What It Allows | Use Case |
+| Nível | O Que Permite | Caso de Uso |
 |-------|---------------|----------|
-| **Privileged** | Anything goes — no restrictions | System-level infrastructure (CNI, logging agents) |
-| **Baseline** | Blocks known privilege escalations (hostNetwork, hostPID, privileged containers) | Most application workloads |
-| **Restricted** | Requires non-root, drops all capabilities, disallows privilege escalation, seccomp profiles | Security-sensitive workloads |
+| **Privileged** | Vale tudo — sem restrições | Infraestrutura de nível de sistema (CNI, agentes de logging) |
+| **Baseline** | Bloqueia escalações de privilégio conhecidas (hostNetwork, hostPID, containers privilegiados) | A maioria dos workloads de aplicação |
+| **Restricted** | Exige non-root, remove todas as capabilities, proíbe escalação de privilégios, perfis seccomp | Workloads sensíveis à segurança |
 
-### Three Enforcement Modes
+### Três Modos de Aplicação
 
-For each namespace, you can configure Pod Security Admission in three modes:
+Para cada namespace, você pode configurar Pod Security Admission em três modos:
 
-| Mode | Behavior |
+| Modo | Comportamento |
 |------|----------|
-| **enforce** | Rejects pods that violate the policy |
-| **audit** | Allows the pod but logs a violation in the audit log |
-| **warn** | Allows the pod but displays a warning to the user |
+| **enforce** | Rejeita pods que violam a política |
+| **audit** | Permite o pod mas registra uma violação no log de auditoria |
+| **warn** | Permite o pod mas exibe um aviso para o usuário |
 
-You apply these via namespace labels:
+Você aplica via labels no namespace:
 
 ```bash
-# Enforce the restricted profile on a namespace
+# Aplicar o perfil restricted em um namespace
 kubectl label namespace secure-ns \
   pod-security.kubernetes.io/enforce=restricted \
   pod-security.kubernetes.io/enforce-version=latest
 
-# Warn about baseline violations (but don't block)
+# Avisar sobre violações do baseline (mas não bloquear)
 kubectl label namespace dev-ns \
   pod-security.kubernetes.io/warn=baseline \
   pod-security.kubernetes.io/warn-version=latest
 ```
 
-The recommended pattern for migrating existing workloads: start with `warn` to see what would break, then `audit` to track violations without disruption, then `enforce` when you're confident.
+O padrão recomendado para migrar workloads existentes: comece com `warn` para ver o que quebraria, depois `audit` para rastrear violações sem interrupção, e então `enforce` quando estiver confiante.
 
 ---
 
-## NetworkPolicy — Firewall Rules for Pods
+## NetworkPolicy — Regras de Firewall para Pods
 
-By default, Kubernetes networking is **wide open**. Every pod can talk to every other pod in the cluster, regardless of namespace. There's no firewall, no segmentation, no isolation. It's like running a Linux server with `iptables -P INPUT ACCEPT` and no rules at all.
+Por padrão, a rede do Kubernetes é **totalmente aberta**. Todo pod pode se comunicar com qualquer outro pod no cluster, independentemente do namespace. Não há firewall, sem segmentação, sem isolamento. É como rodar um servidor Linux com `iptables -P INPUT ACCEPT` e nenhuma regra.
 
-**NetworkPolicy** objects are the Kubernetes firewall. They define which pods can talk to which other pods, on which ports, in which direction.
+Objetos **NetworkPolicy** são o firewall do Kubernetes. Eles definem quais pods podem se comunicar com quais outros pods, em quais portas, em qual direção.
 
-### How NetworkPolicies Work
+### Como NetworkPolicies Funcionam
 
-1. **No NetworkPolicy = no restrictions.** Pods accept traffic from everywhere.
-2. **Once you apply a NetworkPolicy selecting a pod, that pod becomes isolated.** Only traffic explicitly allowed by a policy is permitted.
-3. **Policies are additive (whitelist model).** You can't write a "deny this specific connection" rule. You write "allow these connections" and everything else is implicitly denied.
+1. **Sem NetworkPolicy = sem restrições.** Pods aceitam tráfego de qualquer lugar.
+2. **Uma vez que você aplica uma NetworkPolicy selecionando um pod, esse pod se torna isolado.** Apenas tráfego explicitamente permitido por uma política é aceito.
+3. **Políticas são aditivas (modelo de whitelist).** Você não pode escrever uma regra "negar esta conexão específica". Você escreve "permitir estas conexões" e todo o resto é implicitamente negado.
 
-### Anatomy of a NetworkPolicy
+### Anatomia de uma NetworkPolicy
 
 ```yaml
 apiVersion: networking.k8s.io/v1
@@ -181,40 +181,40 @@ metadata:
 spec:
   podSelector:
     matchLabels:
-      app: backend            # This policy applies to pods with app=backend
+      app: backend            # Esta política se aplica a pods com app=backend
   policyTypes:
   - Ingress
   ingress:
   - from:
     - podSelector:
         matchLabels:
-          app: frontend       # Allow traffic FROM pods with app=frontend
+          app: frontend       # Permitir tráfego DE pods com app=frontend
     ports:
     - protocol: TCP
-      port: 80                # Only on port 80
+      port: 80                # Apenas na porta 80
 ```
 
-This reads: "Pods labeled `app: backend` accept incoming TCP traffic on port 80, but only from pods labeled `app: frontend`. All other ingress to `backend` pods is denied."
+Isso se lê: "Pods com label `app: backend` aceitam tráfego TCP de entrada na porta 80, mas apenas de pods com label `app: frontend`. Todo outro ingress para pods `backend` é negado."
 
-### Default Deny Policies
+### Políticas de Negação Padrão
 
-The most important NetworkPolicy pattern is the **default deny** — block all traffic, then selectively whitelist:
+O padrão de NetworkPolicy mais importante é a **negação padrão** — bloquear todo o tráfego, depois liberar seletivamente:
 
 ```yaml
-# Default deny ALL ingress in the namespace
+# Negar padrão TODA entrada no namespace
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
   name: default-deny-ingress
   namespace: default
 spec:
-  podSelector: {}             # Empty selector = applies to ALL pods
+  podSelector: {}             # Selector vazio = aplica a TODOS os pods
   policyTypes:
-  - Ingress                   # Block all incoming traffic
+  - Ingress                   # Bloquear todo tráfego de entrada
 ```
 
 ```yaml
-# Default deny ALL egress in the namespace
+# Negar padrão TODA saída no namespace
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -223,28 +223,28 @@ metadata:
 spec:
   podSelector: {}
   policyTypes:
-  - Egress                    # Block all outgoing traffic
+  - Egress                    # Bloquear todo tráfego de saída
 ```
 
-> **Important:** NetworkPolicies require a CNI plugin that supports them. Not all CNIs do. **kindnet** (Kind's default CNI) has limited NetworkPolicy support. For production or full-featured testing, use **Calico** or **Cilium**.
+> **Importante:** NetworkPolicies requerem um plugin CNI que as suporte. Nem todos os CNIs suportam. O **kindnet** (CNI padrão do Kind) tem suporte limitado a NetworkPolicy. Para produção ou testes completos, use **Calico** ou **Cilium**.
 
 ---
 
-## Secrets Protection
+## Proteção de Secrets
 
-Chapter 9 introduced Secrets as a Kubernetes resource. But storing a Secret in the cluster is only half the battle — you also need to protect it.
+O Capítulo 9 introduziu Secrets como um recurso Kubernetes. Mas armazenar um Secret no cluster é apenas metade da batalha — você também precisa protegê-lo.
 
-### The Problem with Default Secrets
+### O Problema com Secrets Padrão
 
-By default, Kubernetes Secrets are:
+Por padrão, Kubernetes Secrets são:
 
-1. **Base64-encoded, not encrypted.** Anyone who can read the Secret can decode it instantly with `base64 -d`.
-2. **Stored unencrypted in etcd.** If someone gains access to the etcd data directory, they can read every Secret in the cluster.
-3. **Accessible to anyone with `get secret` RBAC permissions.** A misconfigured RoleBinding can expose every password and API key in a namespace.
+1. **Codificados em Base64, não criptografados.** Qualquer pessoa que possa ler o Secret pode decodificá-lo instantaneamente com `base64 -d`.
+2. **Armazenados sem criptografia no etcd.** Se alguém ganhar acesso ao diretório de dados do etcd, pode ler todos os Secrets do cluster.
+3. **Acessíveis a qualquer pessoa com permissões RBAC de `get secret`.** Um RoleBinding mal configurado pode expor todas as senhas e chaves de API em um namespace.
 
-### Encryption at Rest
+### Criptografia em Repouso
 
-Kubernetes supports encrypting Secret data in etcd via an `EncryptionConfiguration` resource. This ensures that even if someone accesses the etcd storage directly, the Secret values are encrypted:
+O Kubernetes suporta criptografia de dados de Secret no etcd via um recurso `EncryptionConfiguration`. Isso garante que mesmo se alguém acessar o armazenamento etcd diretamente, os valores dos Secrets estarão criptografados:
 
 ```yaml
 apiVersion: apiserver.config.k8s.io/v1
@@ -257,27 +257,27 @@ resources:
       keys:
       - name: key1
         secret: <base64-encoded-32-byte-key>
-  - identity: {}       # Fallback: read unencrypted data written before encryption was enabled
+  - identity: {}       # Fallback: ler dados não criptografados escritos antes da habilitação da criptografia
 ```
 
-This is configured on the API server via the `--encryption-provider-config` flag. In managed Kubernetes services (AKS, EKS, GKE), encryption at rest is typically enabled by default.
+Isso é configurado no API server via a flag `--encryption-provider-config`. Em serviços Kubernetes gerenciados (AKS, EKS, GKE), a criptografia em repouso é tipicamente habilitada por padrão.
 
-### External Secret Management
+### Gerenciamento Externo de Secrets
 
-For production environments, the best practice is to store secrets *outside* the cluster entirely:
+Para ambientes de produção, a melhor prática é armazenar secrets *fora* do cluster inteiramente:
 
-- **External Secrets Operator (ESO):** Syncs secrets from external stores (AWS Secrets Manager, Azure Key Vault, HashiCorp Vault, GCP Secret Manager) into Kubernetes Secrets automatically.
-- **Sealed Secrets:** Encrypts Secrets client-side so the encrypted version can be safely stored in Git. Only the cluster can decrypt them.
+- **External Secrets Operator (ESO):** Sincroniza secrets de armazenamentos externos (AWS Secrets Manager, Azure Key Vault, HashiCorp Vault, GCP Secret Manager) em Kubernetes Secrets automaticamente.
+- **Sealed Secrets:** Criptografa Secrets no lado do cliente para que a versão criptografada possa ser armazenada com segurança no Git. Apenas o cluster pode descriptografá-los.
 
-The golden rule: **never store plaintext secrets in Git.** Not in manifests, not in Helm values files, not in environment variable definitions. Use external secret management or encrypted-at-rest solutions.
+A regra de ouro: **nunca armazene secrets em texto puro no Git.** Nem em manifestos, nem em arquivos de values do Helm, nem em definições de variáveis de ambiente. Use gerenciamento externo de secrets ou soluções com criptografia em repouso.
 
 ---
 
-## Security Context — Per-Pod and Per-Container Permissions
+## Security Context — Permissões por Pod e por Container
 
-A SecurityContext defines privilege and access control settings for a pod or individual container. This is where Kubernetes maps most directly to Linux security primitives — because it literally configures the Linux security features of the container runtime.
+Um SecurityContext define configurações de privilégio e controle de acesso para um pod ou container individual. É aqui que o Kubernetes mapeia mais diretamente para primitivos de segurança do Linux — porque ele literalmente configura os recursos de segurança Linux do container runtime.
 
-### Key Fields
+### Campos Principais
 
 ```yaml
 apiVersion: v1
@@ -285,80 +285,80 @@ kind: Pod
 metadata:
   name: secure-pod
 spec:
-  securityContext:                    # Pod-level settings
-    runAsNonRoot: true                # Refuse to start if image runs as root
-    runAsUser: 1000                   # Run as UID 1000
-    runAsGroup: 3000                  # Run as GID 3000
-    fsGroup: 2000                     # Supplemental group for volume mounts
+  securityContext:                    # Configurações no nível do pod
+    runAsNonRoot: true                # Recusar iniciar se a imagem rodar como root
+    runAsUser: 1000                   # Rodar como UID 1000
+    runAsGroup: 3000                  # Rodar como GID 3000
+    fsGroup: 2000                     # Grupo suplementar para montagem de volumes
     seccompProfile:
-      type: RuntimeDefault            # Apply the container runtime's default seccomp filter
+      type: RuntimeDefault            # Aplicar o filtro seccomp padrão do container runtime
   containers:
   - name: app
     image: nginx:1.27
-    securityContext:                   # Container-level settings (override pod-level)
-      allowPrivilegeEscalation: false # Block setuid/setgid bits
-      readOnlyRootFilesystem: true    # Mount root filesystem as read-only
+    securityContext:                   # Configurações no nível do container (sobrescrevem o nível do pod)
+      allowPrivilegeEscalation: false # Bloquear bits setuid/setgid
+      readOnlyRootFilesystem: true    # Montar sistema de arquivos raiz como somente leitura
       capabilities:
         drop:
-        - ALL                         # Drop all Linux capabilities
+        - ALL                         # Remover todas as capabilities Linux
         add:
-        - NET_BIND_SERVICE            # Add back only what's needed
+        - NET_BIND_SERVICE            # Adicionar de volta apenas o necessário
 ```
 
-### Linux Capabilities in Kubernetes
+### Linux Capabilities no Kubernetes
 
-Linux capabilities are a direct mapping. The `capabilities` field in a SecurityContext is the exact same mechanism as `setcap` and `capsh` on Linux:
+Linux capabilities são um mapeamento direto. O campo `capabilities` em um SecurityContext é o exato mesmo mecanismo que `setcap` e `capsh` no Linux:
 
-| Capability | What It Allows |
+| Capability | O Que Permite |
 |-----------|---------------|
-| `NET_BIND_SERVICE` | Bind to ports below 1024 |
-| `SYS_PTRACE` | Trace/debug other processes |
-| `SYS_ADMIN` | A grab-bag of privileged operations (mount, namespace ops) |
-| `NET_RAW` | Use raw sockets (needed for `ping`) |
-| `CHOWN` | Change file ownership |
+| `NET_BIND_SERVICE` | Vincular a portas abaixo de 1024 |
+| `SYS_PTRACE` | Rastrear/depurar outros processos |
+| `SYS_ADMIN` | Um pacote de operações privilegiadas (mount, operações de namespace) |
+| `NET_RAW` | Usar raw sockets (necessário para `ping`) |
+| `CHOWN` | Alterar proprietário de arquivos |
 
-The best practice: **drop ALL capabilities, then add back only what the container actually needs.** This is the capability equivalent of least privilege.
+A melhor prática: **remover TODAS as capabilities, depois adicionar de volta apenas o que o container realmente precisa.** Este é o equivalente de capabilities do menor privilégio.
 
-### Seccomp Profiles
+### Perfis Seccomp
 
-Seccomp (Secure Computing Mode) is a Linux kernel feature that restricts which system calls a process can make. Kubernetes exposes this via the `seccompProfile` field:
+Seccomp (Secure Computing Mode) é um recurso do kernel Linux que restringe quais chamadas de sistema um processo pode fazer. O Kubernetes expõe isso via o campo `seccompProfile`:
 
-- `RuntimeDefault` — Uses the container runtime's default seccomp profile (recommended baseline)
-- `Localhost` — References a custom seccomp profile on the node
-- `Unconfined` — No seccomp filtering (not recommended)
+- `RuntimeDefault` — Usa o perfil seccomp padrão do container runtime (baseline recomendado)
+- `Localhost` — Referencia um perfil seccomp personalizado no node
+- `Unconfined` — Sem filtragem seccomp (não recomendado)
 
 ---
 
-## Linux ↔ Kubernetes Comparison
+## Comparação Linux ↔ Kubernetes
 
-| Linux Concept | Kubernetes Equivalent | Notes |
+| Conceito Linux | Equivalente Kubernetes | Notas |
 |---------------|----------------------|-------|
-| Users and groups | ServiceAccounts | Identity for processes/pods |
-| `/etc/sudoers` | Role / ClusterRole | What actions are permitted |
-| `sudo` group membership | RoleBinding / ClusterRoleBinding | Granting permissions to an identity |
-| `chmod`, `chown` | SecurityContext | Per-pod/container permissions |
-| `iptables` INPUT/OUTPUT chains | NetworkPolicy ingress/egress | Traffic filtering |
-| AppArmor/SELinux profiles | Pod Security Admission | Restrict what pods can do |
-| Capabilities (`capsh`, `setcap`) | securityContext.capabilities | Fine-grained privilege control |
-| `/etc/shadow` permissions | Secrets + RBAC | Restricting access to sensitive data |
+| Usuários e grupos | ServiceAccounts | Identidade para processos/pods |
+| `/etc/sudoers` | Role / ClusterRole | Quais ações são permitidas |
+| Pertencer ao grupo `sudo` | RoleBinding / ClusterRoleBinding | Conceder permissões a uma identidade |
+| `chmod`, `chown` | SecurityContext | Permissões por pod/container |
+| Chains `iptables` INPUT/OUTPUT | NetworkPolicy ingress/egress | Filtragem de tráfego |
+| Perfis AppArmor/SELinux | Pod Security Admission | Restringir o que pods podem fazer |
+| Capabilities (`capsh`, `setcap`) | securityContext.capabilities | Controle de privilégios granular |
+| Permissões do `/etc/shadow` | Secrets + RBAC | Restringir acesso a dados sensíveis |
 
 ---
 
-> ### 🔒 Where the Linux Analogy Breaks
+> ### 🔒 Onde a Analogia com Linux Quebra
 >
-> - **Linux security is machine-scoped. Kubernetes RBAC is cluster-scoped.** On Linux, one misconfigured user affects one machine. In Kubernetes, a misconfigured ClusterRoleBinding can grant permissions across *every* namespace in the cluster. A single `cluster-admin` binding given to the wrong ServiceAccount is equivalent to giving `root` on every server simultaneously. The blast radius is the entire cluster.
+> - **Segurança Linux tem escopo de máquina. RBAC Kubernetes tem escopo de cluster.** No Linux, um usuário mal configurado afeta uma máquina. No Kubernetes, um ClusterRoleBinding mal configurado pode conceder permissões em *todos* os namespaces do cluster. Um único binding `cluster-admin` dado à ServiceAccount errada é equivalente a dar `root` em todos os servidores simultaneamente. O raio de explosão é o cluster inteiro.
 >
-> - **There's no `su` or `sudo` in Kubernetes.** You can't temporarily elevate privileges. Your ServiceAccount either has permission or it doesn't — there's no "enter the password to run this one command as admin." Kubernetes does support impersonation (`--as=` flag), but using it requires explicit RBAC grants for the impersonation verbs. It's a deliberate design choice: no ambient authority, no privilege escalation paths.
+> - **Não existe `su` ou `sudo` no Kubernetes.** Você não pode elevar privilégios temporariamente. Sua ServiceAccount ou tem permissão ou não tem — não existe "digite a senha para executar este comando como admin." O Kubernetes suporta impersonação (flag `--as=`), mas usá-la requer grants RBAC explícitos para os verbos de impersonação. É uma escolha de design deliberada: sem autoridade implícita, sem caminhos de escalação de privilégio.
 >
-> - **NetworkPolicies are additive (whitelist model).** On Linux, `iptables` default is often "accept all, block specific traffic" — you add DROP rules for things you want to block. In Kubernetes, once you apply a default deny policy, **nothing** can communicate until you explicitly allow it. You build up from zero, not down from everything. This catches people off guard: apply a default deny, and suddenly your entire namespace goes silent.
+> - **NetworkPolicies são aditivas (modelo de whitelist).** No Linux, o padrão do `iptables` frequentemente é "aceitar tudo, bloquear tráfego específico" — você adiciona regras DROP para coisas que quer bloquear. No Kubernetes, uma vez que você aplica uma política de negação padrão, **nada** pode se comunicar até que você explicitamente permita. Você constrói a partir do zero, não reduz a partir de tudo. Isso pega as pessoas de surpresa: aplique uma negação padrão, e de repente todo seu namespace fica silencioso.
 
 ---
 
-## Diagnostic Lab: Kubernetes Security in Practice
+## Laboratório Diagnóstico: Segurança Kubernetes na Prática
 
-### Prerequisites
+### Pré-requisitos
 
-Create a Kind cluster with Calico for full NetworkPolicy support:
+Crie um cluster Kind com Calico para suporte completo a NetworkPolicy:
 
 ```bash
 cat <<'EOF' > kind-security-lab.yaml
@@ -375,30 +375,30 @@ EOF
 kind create cluster --name security-lab --config kind-security-lab.yaml
 ```
 
-Install Calico CNI:
+Instale o CNI Calico:
 
 ```bash
 kubectl apply -f https://raw.githubusercontent.com/projectcalico/calico/v3.29.3/manifests/calico.yaml
 ```
 
-Wait for Calico pods to become ready:
+Aguarde os pods do Calico ficarem prontos:
 
 ```bash
 kubectl wait --for=condition=Ready pods -l k8s-app=calico-node -n kube-system --timeout=120s
 kubectl get nodes
 ```
 
-All nodes should show `Ready` status.
+Todos os nodes devem mostrar status `Ready`.
 
-### Lab 1: RBAC — ServiceAccounts, Roles, and RoleBindings
+### Lab 1: RBAC — ServiceAccounts, Roles e RoleBindings
 
-**Step 1 — Create a ServiceAccount:**
+**Passo 1 — Criar uma ServiceAccount:**
 
 ```bash
 kubectl create serviceaccount dev-user
 ```
 
-**Step 2 — Create a Role that only allows reading pods:**
+**Passo 2 — Criar uma Role que permite apenas leitura de pods:**
 
 ```bash
 cat <<'EOF' | kubectl apply -f -
@@ -414,7 +414,7 @@ rules:
 EOF
 ```
 
-**Step 3 — Create a RoleBinding to attach the Role to the ServiceAccount:**
+**Passo 3 — Criar um RoleBinding para vincular a Role à ServiceAccount:**
 
 ```bash
 cat <<'EOF' | kubectl apply -f -
@@ -434,38 +434,38 @@ roleRef:
 EOF
 ```
 
-**Step 4 — Test the permissions:**
+**Passo 4 — Testar as permissões:**
 
 ```bash
-# Should return "yes" — dev-user can list pods
+# Deve retornar "yes" — dev-user pode listar pods
 kubectl auth can-i list pods --as=system:serviceaccount:default:dev-user
 
-# Should return "yes" — dev-user can get pods
+# Deve retornar "yes" — dev-user pode obter pods
 kubectl auth can-i get pods --as=system:serviceaccount:default:dev-user
 
-# Should return "no" — dev-user cannot delete pods
+# Deve retornar "no" — dev-user não pode deletar pods
 kubectl auth can-i delete pods --as=system:serviceaccount:default:dev-user
 
-# Should return "no" — dev-user cannot create deployments
+# Deve retornar "no" — dev-user não pode criar deployments
 kubectl auth can-i create deployments --as=system:serviceaccount:default:dev-user
 
-# Should return "no" — dev-user cannot get secrets
+# Deve retornar "no" — dev-user não pode obter secrets
 kubectl auth can-i get secrets --as=system:serviceaccount:default:dev-user
 ```
 
-This is least privilege in action: `dev-user` can read pods and nothing else.
+Isso é menor privilégio em ação: `dev-user` pode ler pods e nada mais.
 
-**Step 5 — Explore what the ServiceAccount can do across the board:**
+**Passo 5 — Explorar o que a ServiceAccount pode fazer de forma abrangente:**
 
 ```bash
 kubectl auth can-i --list --as=system:serviceaccount:default:dev-user
 ```
 
-This outputs a complete list of permissions — useful for auditing.
+Isso exibe uma lista completa de permissões — útil para auditoria.
 
 ### Lab 2: Pod Security Admission
 
-**Step 1 — Create a namespace with the restricted PSA profile:**
+**Passo 1 — Criar um namespace com o perfil PSA restricted:**
 
 ```bash
 kubectl create namespace secure-ns
@@ -477,7 +477,7 @@ kubectl label namespace secure-ns \
   pod-security.kubernetes.io/warn-version=latest
 ```
 
-**Step 2 — Try deploying a privileged pod (should be REJECTED):**
+**Passo 2 — Tentar fazer deploy de um pod privilegiado (deve ser REJEITADO):**
 
 ```bash
 cat <<'EOF' | kubectl apply -n secure-ns -f -
@@ -494,13 +494,13 @@ spec:
 EOF
 ```
 
-You should see an error like:
+Você deve ver um erro como:
 ```
 Error from server (Forbidden): error when creating "STDIN": pods "privileged-pod"
 is forbidden: violates PodSecurity "restricted:latest"...
 ```
 
-**Step 3 — Deploy a compliant pod (should SUCCEED):**
+**Passo 3 — Fazer deploy de um pod em conformidade (deve TER SUCESSO):**
 
 ```bash
 cat <<'EOF' | kubectl apply -n secure-ns -f -
@@ -527,7 +527,7 @@ spec:
 EOF
 ```
 
-**Step 4 — Verify the compliant pod is running:**
+**Passo 4 — Verificar que o pod em conformidade está rodando:**
 
 ```bash
 kubectl get pods -n secure-ns
@@ -535,34 +535,34 @@ kubectl exec -n secure-ns compliant-pod -- id
 kubectl exec -n secure-ns compliant-pod -- whoami
 ```
 
-The pod runs as UID 1000 — a non-root user.
+O pod roda como UID 1000 — um usuário não-root.
 
 ### Lab 3: NetworkPolicy
 
-**Step 1 — Deploy two applications (frontend and backend):**
+**Passo 1 — Fazer deploy de duas aplicações (frontend e backend):**
 
 ```bash
-# Deploy backend
+# Deploy do backend
 kubectl run backend --image=nginx:1.27 --labels="app=backend" --port=80
 kubectl expose pod backend --port=80 --target-port=80
 
-# Deploy frontend (a long-lived pod for testing connectivity)
+# Deploy do frontend (um pod de longa duração para testar conectividade)
 kubectl run frontend --image=busybox:1.37 --labels="app=frontend" -- sleep 3600
 
-# Wait for pods to be ready
+# Aguardar os pods ficarem prontos
 kubectl wait --for=condition=Ready pod/backend --timeout=60s
 kubectl wait --for=condition=Ready pod/frontend --timeout=60s
 ```
 
-**Step 2 — Verify they can communicate (no policies yet):**
+**Passo 2 — Verificar que podem se comunicar (sem políticas ainda):**
 
 ```bash
 kubectl exec frontend -- wget -qO- --timeout=5 http://backend
 ```
 
-You should see the nginx welcome page HTML. The network is wide open.
+Você deve ver o HTML da página de boas-vindas do nginx. A rede está totalmente aberta.
 
-**Step 3 — Apply a default-deny-all ingress policy:**
+**Passo 3 — Aplicar uma política de negação padrão para todo ingress:**
 
 ```bash
 cat <<'EOF' | kubectl apply -f -
@@ -578,15 +578,15 @@ spec:
 EOF
 ```
 
-**Step 4 — Verify frontend can NO LONGER reach backend:**
+**Passo 4 — Verificar que o frontend NÃO PODE MAIS alcançar o backend:**
 
 ```bash
 kubectl exec frontend -- wget -qO- --timeout=5 http://backend
 ```
 
-This should timeout — the default deny policy blocks all ingress traffic.
+Isso deve dar timeout — a política de negação padrão bloqueia todo tráfego de entrada.
 
-**Step 5 — Add a policy that allows frontend → backend on port 80:**
+**Passo 5 — Adicionar uma política que permite frontend → backend na porta 80:**
 
 ```bash
 cat <<'EOF' | kubectl apply -f -
@@ -612,30 +612,30 @@ spec:
 EOF
 ```
 
-**Step 6 — Verify communication is restored:**
+**Passo 6 — Verificar que a comunicação foi restaurada:**
 
 ```bash
 kubectl exec frontend -- wget -qO- --timeout=5 http://backend
 ```
 
-You should see the nginx welcome page again. The whitelist policy selectively allows frontend → backend while everything else remains blocked.
+Você deve ver a página de boas-vindas do nginx novamente. A política de whitelist permite seletivamente frontend → backend enquanto todo o resto permanece bloqueado.
 
-**Step 7 — Verify that other pods still can't reach backend:**
+**Passo 7 — Verificar que outros pods ainda não conseguem alcançar o backend:**
 
 ```bash
-# Create a pod without the frontend label
+# Criar um pod sem a label frontend
 kubectl run outsider --image=busybox:1.37 --labels="app=outsider" -- sleep 3600
 kubectl wait --for=condition=Ready pod/outsider --timeout=60s
 
-# Try to reach backend — should timeout
+# Tentar alcançar o backend — deve dar timeout
 kubectl exec outsider -- wget -qO- --timeout=5 http://backend
 ```
 
-The outsider pod is blocked because it doesn't match the `app: frontend` label selector.
+O pod outsider é bloqueado porque não corresponde ao selector de label `app: frontend`.
 
 ### Lab 4: Security Context
 
-**Step 1 — Deploy a pod with strict security settings:**
+**Passo 1 — Fazer deploy de um pod com configurações de segurança estritas:**
 
 ```bash
 cat <<'EOF' | kubectl apply -f -
@@ -663,31 +663,31 @@ spec:
 EOF
 ```
 
-**Step 2 — Verify the security constraints are active:**
+**Passo 2 — Verificar que as restrições de segurança estão ativas:**
 
 ```bash
-# Check UID and GID — should be uid=1000, gid=3000
+# Verificar UID e GID — deve ser uid=1000, gid=3000
 kubectl exec hardened-pod -- id
 
-# Try to write to the root filesystem — should fail (read-only)
+# Tentar escrever no sistema de arquivos raiz — deve falhar (somente leitura)
 kubectl exec hardened-pod -- touch /test
 
-# Try to write to /tmp — also fails (entire root FS is read-only)
+# Tentar escrever em /tmp — também falha (todo o FS raiz é somente leitura)
 kubectl exec hardened-pod -- touch /tmp/test
 ```
 
-The `touch` commands should fail with "Read-only file system." The container can only write to explicitly mounted writable volumes (emptyDir, PVC).
+Os comandos `touch` devem falhar com "Read-only file system." O container só pode escrever em volumes montados explicitamente como graváveis (emptyDir, PVC).
 
-**Step 3 — Check that the pod has the strictest QoS settings reflected:**
+**Passo 3 — Verificar que o pod tem as configurações de QoS mais estritas refletidas:**
 
 ```bash
 kubectl get pod hardened-pod -o jsonpath='{.spec.securityContext}' | python -m json.tool
 ```
 
-### Clean Up
+### Limpeza
 
 ```bash
-# Delete all lab resources
+# Deletar todos os recursos do lab
 kubectl delete pod frontend backend outsider hardened-pod --ignore-not-found
 kubectl delete svc backend --ignore-not-found
 kubectl delete networkpolicy default-deny-ingress allow-frontend-to-backend --ignore-not-found
@@ -696,34 +696,34 @@ kubectl delete role pod-reader --ignore-not-found
 kubectl delete serviceaccount dev-user --ignore-not-found
 kubectl delete namespace secure-ns --ignore-not-found
 
-# Delete the Kind cluster
+# Deletar o cluster Kind
 kind delete cluster --name security-lab
 
-# Remove the cluster config file
+# Remover o arquivo de configuração do cluster
 rm -f kind-security-lab.yaml
 ```
 
 ---
 
-## Key Takeaways
+## Principais Conclusões
 
-1. **RBAC is the foundation of Kubernetes security.** Every pod runs with a ServiceAccount, every action requires authorization, and the principle of least privilege should guide every Role and RoleBinding you create. Never use `cluster-admin` when a namespace-scoped Role will do.
+1. **RBAC é a base da segurança Kubernetes.** Todo pod roda com uma ServiceAccount, toda ação requer autorização, e o princípio do menor privilégio deve guiar cada Role e RoleBinding que você criar. Nunca use `cluster-admin` quando uma Role com escopo de namespace é suficiente.
 
-2. **Pod Security Admission replaces the deprecated PodSecurityPolicies.** Use the three predefined levels (Privileged, Baseline, Restricted) with namespace labels. Start with `warn` mode, graduate to `enforce` once you've verified compliance.
+2. **Pod Security Admission substitui as descontinuadas PodSecurityPolicies.** Use os três níveis predefinidos (Privileged, Baseline, Restricted) com labels no namespace. Comece com o modo `warn`, avance para `enforce` quando verificar a conformidade.
 
-3. **The default Kubernetes network is wide open.** Without NetworkPolicies, every pod can talk to every other pod. Apply default-deny policies first, then selectively whitelist required communication paths — just like configuring a firewall.
+3. **A rede padrão do Kubernetes é totalmente aberta.** Sem NetworkPolicies, todo pod pode se comunicar com qualquer outro pod. Aplique políticas de negação padrão primeiro, depois libere seletivamente os caminhos de comunicação necessários — assim como configurar um firewall.
 
-4. **NetworkPolicies require a supporting CNI.** Kind's default `kindnet` has limited support. For production or thorough testing, use Calico or Cilium.
+4. **NetworkPolicies requerem um CNI compatível.** O `kindnet` padrão do Kind tem suporte limitado. Para produção ou testes completos, use Calico ou Cilium.
 
-5. **Security Context maps directly to Linux security primitives.** `runAsNonRoot`, `capabilities`, `readOnlyRootFilesystem`, and `seccompProfile` are all configuring Linux kernel features via Kubernetes API objects. Your Linux security knowledge applies directly here.
+5. **Security Context mapeia diretamente para primitivos de segurança Linux.** `runAsNonRoot`, `capabilities`, `readOnlyRootFilesystem` e `seccompProfile` estão todos configurando recursos do kernel Linux via objetos da API Kubernetes. Seu conhecimento de segurança Linux se aplica diretamente aqui.
 
-6. **Secrets are not secure by default.** They're base64-encoded (not encrypted), stored unencrypted in etcd unless you enable encryption at rest, and accessible to anyone with the right RBAC permissions. Treat Secrets as the starting point, not the finish line — use external secret management for production.
+6. **Secrets não são seguros por padrão.** São codificados em base64 (não criptografados), armazenados sem criptografia no etcd a menos que você habilite criptografia em repouso, e acessíveis a qualquer pessoa com as permissões RBAC certas. Trate Secrets como ponto de partida, não como linha de chegada — use gerenciamento externo de secrets para produção.
 
-7. **Defense in depth is the only strategy.** RBAC controls who can do what. PSA controls what workloads can run. NetworkPolicy controls what can talk to what. SecurityContext controls what a container can do at the OS level. Use all of them together — each layer catches what the others miss.
+7. **Defesa em profundidade é a única estratégia.** RBAC controla quem pode fazer o quê. PSA controla quais workloads podem rodar. NetworkPolicy controla o que pode se comunicar com o quê. SecurityContext controla o que um container pode fazer no nível do SO. Use todos juntos — cada camada captura o que as outras deixam escapar.
 
 ---
 
-## Further Reading
+## Leitura Complementar
 
 - [RBAC Authorization](https://kubernetes.io/docs/reference/access-authn-authz/rbac/)
 - [Pod Security Admission](https://kubernetes.io/docs/concepts/security/pod-security-admission/)
@@ -735,5 +735,5 @@ rm -f kind-security-lab.yaml
 
 ---
 
-**Previous:** [Chapter 10 — Packaging and Delivery](10-packaging-and-delivery.md)
-**Next:** [Chapter 12 — Scaling and Observability](12-scaling-and-observability.md)
+**Anterior:** [Capítulo 10 — Empacotamento e Entrega](10-packaging-and-delivery.md)
+**Próximo:** [Capítulo 12 — Escalabilidade e Observabilidade](12-scaling-and-observability.md)

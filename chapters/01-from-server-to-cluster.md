@@ -1,148 +1,148 @@
-# Chapter 1: From Server to Cluster
+# Capítulo 1: Do Servidor ao Cluster
 
-*"Everything you know about Linux still applies. You just need to see it from a higher altitude."*
+*"Tudo o que você sabe sobre Linux ainda se aplica. Você só precisa ver de uma altitude maior."*
 
 ---
 
-## You Already Know More Than You Think
+## Você Já Sabe Mais do Que Imagina
 
-If you've spent years managing Linux servers — configuring services with systemd, debugging networking with ss and tcpdump, managing users and permissions, writing shell scripts that keep production running — you might look at Kubernetes and feel like you're starting from zero.
+Se você passou anos gerenciando servidores Linux — configurando serviços com systemd, depurando rede com ss e tcpdump, gerenciando usuários e permissões, escrevendo shell scripts que mantêm a produção funcionando — talvez olhe para o Kubernetes e sinta que está começando do zero.
 
-You're not.
+Não está.
 
-Kubernetes didn't appear out of nowhere. It was built by people who managed Linux servers at massive scale (Google's Borg system ran on Linux). Every core concept in Kubernetes has a direct ancestor in Linux:
+O Kubernetes não surgiu do nada. Ele foi construído por pessoas que gerenciavam servidores Linux em escala massiva (o sistema Borg do Google rodava em Linux). Cada conceito central do Kubernetes tem um ancestral direto no Linux:
 
-| What You Know (Linux) | What You'll Learn (Kubernetes) |
+| O Que Você Já Sabe (Linux) | O Que Vai Aprender (Kubernetes) |
 |------------------------|-------------------------------|
-| Processes | Pods |
+| Processos | Pods |
 | systemd units | Deployments |
-| iptables / nftables | Services and kube-proxy |
+| iptables / nftables | Services e kube-proxy |
 | /etc/fstab, mount | Volumes, PersistentVolumeClaims |
-| /etc/ config files | ConfigMaps and Secrets |
+| /etc/ arquivos de configuração | ConfigMaps e Secrets |
 | users, groups, chmod | RBAC, ServiceAccounts |
 | cron | CronJobs |
 | systemctl restart | Rolling updates |
 | top, htop | kubectl top, Metrics Server |
 | journalctl | kubectl logs |
 | namespaces (unshare) | Kubernetes Namespaces |
-| cgroups | Resource requests and limits |
+| cgroups | Resource requests e limits |
 
-This table isn't a gimmick — it's the thesis of this entire book. You're not learning something alien. You're learning how familiar concepts scale beyond a single machine.
+Esta tabela não é um truque — é a tese deste livro inteiro. Você não está aprendendo algo alienígena. Está aprendendo como conceitos familiares escalam além de uma única máquina.
 
-## Why Kubernetes?
+## Por Que Kubernetes?
 
-Let's be honest: if you're managing 3 servers, you don't need Kubernetes. A good set of Ansible playbooks and systemd units will serve you well.
+Sejamos honestos: se você está gerenciando 3 servidores, não precisa do Kubernetes. Um bom conjunto de playbooks Ansible e units do systemd vai te atender bem.
 
-But the moment you need to:
+Mas no momento em que você precisa:
 
-- **Run the same application on 50 machines** without manually configuring each one
-- **Handle failures automatically** — if a process dies, it restarts; if a machine dies, the workload moves
-- **Scale up and down** based on actual demand, not on your best guess at 2 AM
-- **Deploy new versions** without downtime and roll back if something breaks
-- **Give different teams** isolated environments on shared infrastructure
+- **Executar a mesma aplicação em 50 máquinas** sem configurar cada uma manualmente
+- **Lidar com falhas automaticamente** — se um processo morre, ele reinicia; se uma máquina morre, a carga de trabalho é movida
+- **Escalar para cima e para baixo** baseado na demanda real, não no seu melhor palpite às 2h da manhã
+- **Implantar novas versões** sem downtime e fazer rollback se algo quebrar
+- **Dar a diferentes equipes** ambientes isolados em infraestrutura compartilhada
 
-...that's when managing individual servers stops scaling and you start thinking in terms of clusters.
+...é quando gerenciar servidores individuais para de escalar e você começa a pensar em termos de clusters.
 
-Kubernetes is what happens when you take the best ideas from Linux system administration — process management, networking, storage, security — and apply them across a fleet of machines instead of one.
+O Kubernetes é o que acontece quando você pega as melhores ideias da administração de sistemas Linux — gerenciamento de processos, rede, armazenamento, segurança — e as aplica em uma frota de máquinas em vez de uma só.
 
-### A Brief History (For Context, Not Trivia)
+### Uma Breve História (Para Contexto, Não Curiosidade)
 
-Kubernetes wasn't the first attempt at container orchestration, but it was the one that stuck:
+O Kubernetes não foi a primeira tentativa de orquestração de containers, mas foi a que vingou:
 
-- **2003-2013**: Google runs Borg internally — managing millions of containers across their infrastructure, all on Linux
-- **2013**: Docker makes containers accessible to everyone (before Docker, you needed deep Linux knowledge to use namespaces and cgroups directly)
-- **2014**: Google open-sources Kubernetes, distilling lessons from Borg into a community project
-- **2015**: Kubernetes 1.0 released; Cloud Native Computing Foundation (CNCF) is formed
-- **2018-present**: Kubernetes becomes the de facto standard for container orchestration; all major cloud providers offer managed Kubernetes (AKS, EKS, GKE)
+- **2003-2013**: Google roda o Borg internamente — gerenciando milhões de containers em sua infraestrutura, tudo em Linux
+- **2013**: Docker torna containers acessíveis a todos (antes do Docker, você precisava de conhecimento profundo de Linux para usar namespaces e cgroups diretamente)
+- **2014**: Google abre o código do Kubernetes, destilando lições do Borg em um projeto comunitário
+- **2015**: Kubernetes 1.0 é lançado; Cloud Native Computing Foundation (CNCF) é formada
+- **2018-presente**: Kubernetes se torna o padrão de fato para orquestração de containers; todos os principais provedores de nuvem oferecem Kubernetes gerenciado (AKS, EKS, GKE)
 
-The key insight: Kubernetes was born from Linux. The people who built it were Linux system administrators and kernel engineers. When you learn Kubernetes, you're learning the next evolution of skills you already have.
+O insight principal: o Kubernetes nasceu do Linux. As pessoas que o construíram eram administradores de sistemas Linux e engenheiros de kernel. Quando você aprende Kubernetes, está aprendendo a próxima evolução de habilidades que já possui.
 
-## The Mental Shift: From Server to Cluster
+## A Mudança Mental: Do Servidor ao Cluster
 
-The hardest part of learning Kubernetes isn't the technology — it's the mindset change.
+A parte mais difícil de aprender Kubernetes não é a tecnologia — é a mudança de mentalidade.
 
-### On a Linux Server, You Think:
+### Em um Servidor Linux, Você Pensa:
 
-- "I need to install nginx on **this machine**"
-- "I need to open port 80 on **this machine's** firewall"
-- "I need to mount **/dev/sdb1** to **/var/www**"
-- "If the service crashes, I'll set up **a systemd restart policy**"
+- "Preciso instalar o nginx **nesta máquina**"
+- "Preciso abrir a porta 80 no firewall **desta máquina**"
+- "Preciso montar **/dev/sdb1** em **/var/www**"
+- "Se o serviço cair, vou configurar **uma política de restart no systemd**"
 
-### In Kubernetes, You Think:
+### No Kubernetes, Você Pensa:
 
-- "I need **3 copies** of nginx running **somewhere** in the cluster"
-- "I need a **Service** that routes traffic to any healthy nginx Pod"
-- "I need **persistent storage** that survives Pod restarts, regardless of which node it runs on"
-- "If a Pod crashes, the **Deployment controller** will replace it automatically"
+- "Preciso de **3 cópias** do nginx rodando **em algum lugar** no cluster"
+- "Preciso de um **Service** que roteie tráfego para qualquer Pod nginx saudável"
+- "Preciso de **armazenamento persistente** que sobreviva a reinícios de Pod, independente de em qual node ele rode"
+- "Se um Pod cair, o **Deployment controller** vai substituí-lo automaticamente"
 
-Notice the shift: you stop caring about *which specific machine* runs your workload. You declare *what you want* (3 nginx replicas, persistent storage, a network endpoint), and Kubernetes figures out the *where* and *how*.
+Perceba a mudança: você para de se preocupar com *qual máquina específica* roda sua carga de trabalho. Você declara *o que quer* (3 réplicas do nginx, armazenamento persistente, um endpoint de rede), e o Kubernetes descobre o *onde* e o *como*.
 
-This is the fundamental change: **from imperative management of individual servers to declarative management of a cluster.**
+Esta é a mudança fundamental: **de gerenciamento imperativo de servidores individuais para gerenciamento declarativo de um cluster.**
 
-> **Where the Linux Analogy Breaks**
+> **Onde a Analogia com Linux Quebra**
 >
-> On a Linux server, you SSH in, run commands, and see immediate results. It's imperative: you tell the system exactly what to do, step by step.
+> Em um servidor Linux, você faz SSH, executa comandos e vê resultados imediatos. É imperativo: você diz ao sistema exatamente o que fazer, passo a passo.
 >
-> Kubernetes is declarative: you describe the desired end state, and a set of controllers continuously work to make reality match your description. There is no "SSH into the cluster and install nginx." Instead, you submit a YAML manifest that says "I want 3 nginx Pods," and Kubernetes creates them, monitors them, and replaces them if they fail.
+> O Kubernetes é declarativo: você descreve o estado final desejado, e um conjunto de controllers trabalha continuamente para fazer a realidade corresponder à sua descrição. Não existe "SSH no cluster e instalar o nginx." Em vez disso, você envia um manifesto YAML que diz "Eu quero 3 Pods nginx," e o Kubernetes os cria, monitora e substitui se falharem.
 >
-> This shift from "I do things" to "I describe what I want" is the single biggest mental adjustment. Everything else flows from it.
+> Essa mudança de "eu faço coisas" para "eu descrevo o que quero" é o maior ajuste mental. Todo o resto deriva disso.
 
-## What This Book Covers
+## O Que Este Livro Cobre
 
-This book is organized as a progressive journey, starting from what you know and building toward production-ready Kubernetes:
+Este livro está organizado como uma jornada progressiva, começando do que você já sabe e construindo em direção a um Kubernetes pronto para produção:
 
-**Part I — Foundations (Chapters 1-5)**
+**Parte I — Fundamentos (Capítulos 1-5)**
 
-You'll bridge from Linux to containers, understand Kubernetes architecture, learn how Kubernetes "thinks" differently from a single server, and get your first cluster running.
+Você vai fazer a ponte do Linux para containers, entender a arquitetura do Kubernetes, aprender como o Kubernetes "pensa" diferente de um servidor único, e colocar seu primeiro cluster para rodar.
 
-**Part II — Core Concepts (Chapters 6-10)**
+**Parte II — Conceitos Centrais (Capítulos 6-10)**
 
-The meat of Kubernetes: workloads, networking, storage, configuration, and packaging. Each chapter maps directly to something you already do on Linux servers.
+A essência do Kubernetes: workloads, rede, armazenamento, configuração e empacotamento. Cada capítulo mapeia diretamente para algo que você já faz em servidores Linux.
 
-**Part III — Operations (Chapters 11-15)**
+**Parte III — Operações (Capítulos 11-15)**
 
-Security, scaling, observability, troubleshooting, and production readiness. This is where Linux operational instincts really pay off — and where the differences matter most.
+Segurança, escalabilidade, observabilidade, troubleshooting e prontidão para produção. É aqui que os instintos operacionais de Linux realmente compensam — e onde as diferenças mais importam.
 
-Every chapter includes:
-- **Linux-to-K8s comparison tables** — quick reference for concept mapping
-- **"Where the Analogy Breaks" boxes** — honest about the limits of Linux analogies
-- **Diagnostic labs** — hands-on exercises using Kind (local Kubernetes)
-- **Key takeaways** — what to remember from each chapter
+Cada capítulo inclui:
+- **Tabelas de comparação Linux-para-K8s** — referência rápida para mapeamento de conceitos
+- **Caixas "Onde a Analogia Quebra"** — honestas sobre os limites das analogias com Linux
+- **Labs de diagnóstico** — exercícios práticos usando Kind (Kubernetes local)
+- **Principais conclusões** — o que lembrar de cada capítulo
 
-## Lab: Verify Your Prerequisites
+## Lab: Verifique Seus Pré-requisitos
 
-Before we dive in, let's make sure your environment is ready. You'll need Docker and Kind installed — both run on Linux (or WSL2 on Windows).
+Antes de mergulhar, vamos garantir que seu ambiente está pronto. Você vai precisar de Docker e Kind instalados — ambos rodam em Linux (ou WSL2 no Windows).
 
-### Step 1: Verify Docker
+### Passo 1: Verificar o Docker
 
 ```bash
 docker version
 ```
 
-You should see both Client and Server versions. If Docker isn't installed, follow the [official installation guide](https://docs.docker.com/engine/install/).
+Você deve ver as versões do Client e do Server. Se o Docker não estiver instalado, siga o [guia oficial de instalação](https://docs.docker.com/engine/install/).
 
-### Step 2: Install Kind
+### Passo 2: Instalar o Kind
 
-Kind (Kubernetes IN Docker) runs a full Kubernetes cluster inside Docker containers. It's the fastest way to get a local cluster:
+Kind (Kubernetes IN Docker) roda um cluster Kubernetes completo dentro de containers Docker. É a maneira mais rápida de ter um cluster local:
 
 ```bash
-# For Linux (amd64)
+# Para Linux (amd64)
 curl -Lo ./kind https://kind.sigs.k8s.io/dl/v0.31.0/kind-linux-amd64
 chmod +x ./kind
 sudo mv ./kind /usr/local/bin/kind
 ```
 
-Verify the installation:
+Verifique a instalação:
 
 ```bash
 kind version
 ```
 
-> **Source:** [Kind Quick Start](https://kind.sigs.k8s.io/docs/user/quick-start/#installation)
+> **Fonte:** [Kind Quick Start](https://kind.sigs.k8s.io/docs/user/quick-start/#installation)
 
-### Step 3: Install kubectl
+### Passo 3: Instalar o kubectl
 
-kubectl is the command-line tool for interacting with Kubernetes clusters — think of it as your `systemctl` for the cluster:
+kubectl é a ferramenta de linha de comando para interagir com clusters Kubernetes — pense nele como seu `systemctl` para o cluster:
 
 ```bash
 curl -LO "https://dl.k8s.io/release/$(curl -Ls https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
@@ -150,65 +150,65 @@ chmod +x kubectl
 sudo mv kubectl /usr/local/bin/kubectl
 ```
 
-Verify:
+Verifique:
 
 ```bash
 kubectl version --client
 ```
 
-> **Source:** [Install kubectl on Linux](https://kubernetes.io/docs/tasks/tools/install-kubectl-linux/)
+> **Fonte:** [Instalar kubectl no Linux](https://kubernetes.io/docs/tasks/tools/install-kubectl-linux/)
 
-### Step 4: Create Your First Cluster
+### Passo 4: Criar Seu Primeiro Cluster
 
 ```bash
 kind create cluster --name from-server-to-cluster
 ```
 
-This creates a single-node Kubernetes cluster running inside a Docker container. You should see output ending with:
+Isso cria um cluster Kubernetes de um único node rodando dentro de um container Docker. Você deve ver uma saída terminando com:
 
 ```
 Set kubectl context to "kind-from-server-to-cluster"
 ```
 
-### Step 5: Verify the Cluster
+### Passo 5: Verificar o Cluster
 
 ```bash
 kubectl cluster-info --context kind-from-server-to-cluster
 ```
 
-Expected output:
+Saída esperada:
 
 ```
 Kubernetes control plane is running at https://127.0.0.1:<port>
 CoreDNS is running at https://127.0.0.1:<port>/api/v1/namespaces/kube-system/services/kube-dns:dns/proxy
 ```
 
-Now explore what's running — this is a full Kubernetes cluster, and its components are actual Linux processes:
+Agora explore o que está rodando — este é um cluster Kubernetes completo, e seus componentes são processos Linux reais:
 
 ```bash
 kubectl get nodes
 kubectl get pods -A
 ```
 
-You'll see familiar friends: `etcd`, `kube-apiserver`, `kube-scheduler`, `kube-controller-manager`, `coredns`, `kube-proxy` — all running as containers, which are just Linux processes with namespaces and cgroups.
+Você verá velhos conhecidos: `etcd`, `kube-apiserver`, `kube-scheduler`, `kube-controller-manager`, `coredns`, `kube-proxy` — todos rodando como containers, que são apenas processos Linux com namespaces e cgroups.
 
-### Clean Up (Optional)
+### Limpeza (Opcional)
 
-If you want to delete the cluster and recreate it later:
+Se quiser deletar o cluster e recriá-lo depois:
 
 ```bash
 kind delete cluster --name from-server-to-cluster
 ```
 
-## Key Takeaways
+## Principais Conclusões
 
-1. **Kubernetes is an evolution of Linux skills**, not a replacement. Every core concept maps to something you already know.
-2. **The fundamental shift** is from imperative (SSH and run commands) to declarative (describe desired state in YAML).
-3. **You stop thinking about individual servers** and start thinking about clusters — what you want running, not where it runs.
-4. **Kind** gives you a full Kubernetes cluster locally for learning — no cloud account needed.
-5. **This book's approach**: start with what you know in Linux, map it to Kubernetes, and honestly flag where the analogy breaks.
+1. **Kubernetes é uma evolução das habilidades Linux**, não uma substituição. Todo conceito central mapeia para algo que você já conhece.
+2. **A mudança fundamental** é de imperativo (SSH e executar comandos) para declarativo (descrever o estado desejado em YAML).
+3. **Você para de pensar em servidores individuais** e começa a pensar em clusters — o que você quer rodando, não onde roda.
+4. **Kind** te dá um cluster Kubernetes completo localmente para aprendizado — sem necessidade de conta em nuvem.
+5. **A abordagem deste livro**: começar com o que você sabe em Linux, mapear para Kubernetes, e honestamente sinalizar onde a analogia quebra.
 
-## Further Reading
+## Leitura Adicional
 
 - [Kubernetes Documentation — Overview](https://kubernetes.io/docs/concepts/overview/)
 - [Kind — Quick Start](https://kind.sigs.k8s.io/docs/user/quick-start/)
@@ -217,4 +217,4 @@ kind delete cluster --name from-server-to-cluster
 
 ---
 
-**Next:** [Chapter 2 — Containers Demystified](02-containers-demystified.md) — The Linux foundations (namespaces, cgroups) that make containers possible, and why understanding them gives you an edge.
+**Próximo:** [Capítulo 2 — Containers Desmistificados](02-containers-demystified.md) — Os fundamentos Linux (namespaces, cgroups) que tornam containers possíveis, e por que entendê-los te dá uma vantagem.

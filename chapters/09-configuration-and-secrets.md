@@ -1,28 +1,28 @@
-# Chapter 9: Configuration and Secrets
+# Capítulo 9: Configuração e Secrets
 
-*"Never hardcode what might change. And everything changes."*
-
----
-
-## The /etc/ of Kubernetes
-
-Every Linux admin has a deep, personal relationship with `/etc/`. It's where the personality of a server lives — `nginx.conf`, `sshd_config`, `resolv.conf`, `my.cnf`, the `.env` files your applications read, the shell profiles in `/etc/profile.d/`. Change a file in `/etc/`, reload the service, and behavior changes. The application binary stays the same; only the configuration differs between environments.
-
-Kubernetes takes this idea and elevates it to a first-class pattern. Instead of SSH'ing into a server and editing files, you declare configuration as Kubernetes objects — ConfigMaps and Secrets — and inject them into pods as environment variables or mounted files. The configuration lives in the cluster, versioned and managed alongside your workloads. You never log into a container to edit a config file. You change the ConfigMap, and the cluster propagates the update.
-
-This is the Twelve-Factor App principle in action: "Store config in the environment." Kubernetes doesn't just support this pattern — it enforces it. The same container image runs in dev, staging, and production. Only the injected configuration changes.
-
-For a Linux admin, think of it this way: instead of maintaining different `/etc/nginx/nginx.conf` files on different servers, you maintain different ConfigMaps in different namespaces (or clusters). The nginx image is identical everywhere. The config is external.
+*"Nunca codifique diretamente o que pode mudar. E tudo muda."*
 
 ---
 
-## ConfigMaps — Cluster-Managed Configuration
+## O /etc/ do Kubernetes
 
-A ConfigMap holds non-confidential configuration data as key-value pairs or entire files. It's the Kubernetes equivalent of dropping config files into `/etc/` or setting environment variables in `/etc/profile.d/`.
+Todo administrador Linux tem uma relação profunda e pessoal com o `/etc/`. É onde a personalidade de um servidor vive — `nginx.conf`, `sshd_config`, `resolv.conf`, `my.cnf`, os arquivos `.env` que suas aplicações leem, os profiles de shell em `/etc/profile.d/`. Mude um arquivo no `/etc/`, recarregue o serviço, e o comportamento muda. O binário da aplicação permanece o mesmo; apenas a configuração difere entre ambientes.
 
-### Creating ConfigMaps
+Kubernetes pega essa ideia e a eleva a um padrão de primeira classe. Ao invés de fazer SSH em um servidor e editar arquivos, você declara configuração como objetos Kubernetes — ConfigMaps e Secrets — e os injeta em pods como variáveis de ambiente ou arquivos montados. A configuração vive no cluster, versionada e gerenciada junto com seus workloads. Você nunca faz login em um container para editar um arquivo de configuração. Você muda o ConfigMap, e o cluster propaga a atualização.
 
-**From literals (key-value pairs):**
+Esse é o princípio Twelve-Factor App em ação: "Armazene configuração no ambiente." Kubernetes não apenas suporta esse padrão — ele o impõe. A mesma imagem de container roda em dev, staging e produção. Apenas a configuração injetada muda.
+
+Para um administrador Linux, pense da seguinte forma: ao invés de manter diferentes arquivos `/etc/nginx/nginx.conf` em diferentes servidores, você mantém diferentes ConfigMaps em diferentes namespaces (ou clusters). A imagem do nginx é idêntica em todo lugar. A configuração é externa.
+
+---
+
+## ConfigMaps — Configuração Gerenciada pelo Cluster
+
+Um ConfigMap contém dados de configuração não confidenciais como pares chave-valor ou arquivos inteiros. É o equivalente Kubernetes de colocar arquivos de configuração no `/etc/` ou definir variáveis de ambiente no `/etc/profile.d/`.
+
+### Criando ConfigMaps
+
+**A partir de literais (pares chave-valor):**
 
 ```bash
 kubectl create configmap app-config \
@@ -31,10 +31,10 @@ kubectl create configmap app-config \
   --from-literal=CACHE_TTL=300
 ```
 
-**From a file:**
+**A partir de um arquivo:**
 
 ```bash
-# Create a config file first
+# Criar um arquivo de configuração primeiro
 cat <<'EOF' > nginx.conf
 server {
     listen 80;
@@ -53,7 +53,7 @@ EOF
 kubectl create configmap nginx-config --from-file=nginx.conf
 ```
 
-**From a directory (all files become keys):**
+**A partir de um diretório (todos os arquivos viram chaves):**
 
 ```bash
 mkdir config-dir
@@ -62,7 +62,7 @@ echo "postgres" > config-dir/db_host
 kubectl create configmap app-config-dir --from-file=config-dir/
 ```
 
-**Declaratively (YAML):**
+**Declarativamente (YAML):**
 
 ```yaml
 apiVersion: v1
@@ -79,11 +79,11 @@ data:
     log.level=info
 ```
 
-### Consuming ConfigMaps
+### Consumindo ConfigMaps
 
-There are two main ways to inject ConfigMap data into a pod: as environment variables or as mounted files.
+Existem duas formas principais de injetar dados de ConfigMap em um pod: como variáveis de ambiente ou como arquivos montados.
 
-**As environment variables:**
+**Como variáveis de ambiente:**
 
 ```yaml
 apiVersion: v1
@@ -108,9 +108,9 @@ spec:
           key: DB_HOST
 ```
 
-This is like adding `export LOG_LEVEL=info` to `/etc/profile.d/app.sh`.
+Isso é como adicionar `export LOG_LEVEL=info` ao `/etc/profile.d/app.sh`.
 
-**Bulk injection with `envFrom`:**
+**Injeção em massa com `envFrom`:**
 
 ```yaml
 spec:
@@ -123,9 +123,9 @@ spec:
         name: app-config
 ```
 
-This injects *every* key in the ConfigMap as an environment variable. Like `source /etc/profile.d/app.sh` where every line is an export.
+Isso injeta *toda* chave no ConfigMap como uma variável de ambiente. Como `source /etc/profile.d/app.sh` onde cada linha é um export.
 
-**As mounted files (volume):**
+**Como arquivos montados (volume):**
 
 ```yaml
 apiVersion: v1
@@ -145,24 +145,24 @@ spec:
       name: nginx-config
 ```
 
-Each key in the ConfigMap becomes a file in the mount path. If the ConfigMap has a key `nginx.conf`, the pod gets a file at `/etc/nginx/conf.d/nginx.conf`. This is exactly like copying config files into `/etc/` — except the cluster manages them.
+Cada chave no ConfigMap se torna um arquivo no caminho de montagem. Se o ConfigMap tem uma chave `nginx.conf`, o pod recebe um arquivo em `/etc/nginx/conf.d/nginx.conf`. Isso é exatamente como copiar arquivos de configuração para `/etc/` — exceto que o cluster os gerencia.
 
-### The Update Propagation Caveat
+### A Ressalva da Propagação de Atualizações
 
-Here's something that trips up everyone coming from Linux:
+Aqui está algo que pega todos que vêm do Linux:
 
-- **Volume-mounted ConfigMaps auto-update** — When you change a ConfigMap, the files in mounted volumes are eventually refreshed (the kubelet sync period is roughly 60–90 seconds by default). Your application still needs to notice the change (re-read the file, watch with inotify, etc.).
-- **Environment variables NEVER auto-update** — If you injected a ConfigMap value as an env var, changing the ConfigMap has zero effect on running pods. Environment variables are set at container start time and are immutable for the life of the container. You must restart (or recreate) the pod to pick up the new values.
+- **ConfigMaps montados como volume auto-atualizam** — Quando você muda um ConfigMap, os arquivos nos volumes montados são eventualmente atualizados (o período de sincronização do kubelet é aproximadamente 60–90 segundos por padrão). Sua aplicação ainda precisa perceber a mudança (reler o arquivo, monitorar com inotify, etc.).
+- **Variáveis de ambiente NUNCA auto-atualizam** — Se você injetou um valor de ConfigMap como variável de ambiente, mudar o ConfigMap tem zero efeito em pods rodando. Variáveis de ambiente são definidas no momento de início do container e são imutáveis durante a vida do container. Você deve reiniciar (ou recriar) o pod para pegar os novos valores.
 
-On Linux, this is like the difference between an app that reads `/etc/app.conf` on every request (it sees changes immediately) versus an app that reads `$LOG_LEVEL` once at startup (it never sees changes until restarted).
+No Linux, isso é como a diferença entre um app que lê `/etc/app.conf` a cada requisição (ele vê mudanças imediatamente) versus um app que lê `$LOG_LEVEL` uma vez na inicialização (ele nunca vê mudanças até ser reiniciado).
 
 ---
 
-## Secrets — Sensitive Configuration
+## Secrets — Configuração Sensível
 
-Secrets are structurally identical to ConfigMaps but intended for sensitive data: passwords, API keys, TLS certificates, SSH keys. The API, consumption patterns, and YAML structure are nearly the same.
+Secrets são estruturalmente idênticos a ConfigMaps mas destinados a dados sensíveis: senhas, chaves de API, certificados TLS, chaves SSH. A API, padrões de consumo, e estrutura YAML são quase os mesmos.
 
-### Creating Secrets
+### Criando Secrets
 
 ```bash
 kubectl create secret generic db-creds \
@@ -170,7 +170,7 @@ kubectl create secret generic db-creds \
   --from-literal=password=supersecret
 ```
 
-For TLS certificates:
+Para certificados TLS:
 
 ```bash
 kubectl create secret tls my-tls-secret \
@@ -178,7 +178,7 @@ kubectl create secret tls my-tls-secret \
   --key=path/to/key.pem
 ```
 
-For Docker registry credentials:
+Para credenciais de registro Docker:
 
 ```bash
 kubectl create secret docker-registry my-registry \
@@ -187,19 +187,19 @@ kubectl create secret docker-registry my-registry \
   --docker-password=pass
 ```
 
-### The Base64 Warning
+### O Aviso Sobre Base64
 
-Let's be absolutely clear about this: **base64 encoding is NOT encryption.** It's encoding, like URL encoding. Anyone with access to the Secret object can decode it trivially:
+Vamos ser absolutamente claros sobre isso: **codificação base64 NÃO é criptografia.** É codificação, como URL encoding. Qualquer pessoa com acesso ao objeto Secret pode decodificá-lo trivialmente:
 
 ```bash
-# Create a secret
+# Criar um secret
 kubectl create secret generic db-creds --from-literal=password=supersecret
 
-# View the raw YAML
+# Ver o YAML bruto
 kubectl get secret db-creds -o yaml
 ```
 
-You'll see something like:
+Você verá algo como:
 
 ```yaml
 apiVersion: v1
@@ -211,24 +211,24 @@ data:
   password: c3VwZXJzZWNyZXQ=
 ```
 
-That `c3VwZXJzZWNyZXQ=` is just base64:
+Aquele `c3VwZXJzZWNyZXQ=` é apenas base64:
 
 ```bash
 echo 'c3VwZXJzZWNyZXQ=' | base64 --decode
 # Output: supersecret
 ```
 
-Anyone who can `kubectl get secret` can read your passwords. Secrets provide a *separation of concerns* (config vs. sensitive config), not *security*. For actual security, you need:
+Qualquer pessoa que possa executar `kubectl get secret` pode ler suas senhas. Secrets fornecem uma *separação de responsabilidades* (config vs. config sensível), não *segurança*. Para segurança real, você precisa de:
 
-- **Encryption at rest** — Encrypt etcd storage so Secrets aren't stored in plain text
-- **RBAC** — Restrict who can read Secret objects
-- **External secret managers** — Tools like HashiCorp Vault, AWS Secrets Manager, or Azure Key Vault, integrated via projects like External Secrets Operator or Sealed Secrets
+- **Criptografia em repouso** — Criptografar o armazenamento do etcd para que Secrets não sejam armazenados em texto plano
+- **RBAC** — Restringir quem pode ler objetos Secret
+- **Gerenciadores de secrets externos** — Ferramentas como HashiCorp Vault, AWS Secrets Manager, ou Azure Key Vault, integradas via projetos como External Secrets Operator ou Sealed Secrets
 
-### Consuming Secrets
+### Consumindo Secrets
 
-Secrets are consumed exactly like ConfigMaps — as env vars or volume mounts:
+Secrets são consumidos exatamente como ConfigMaps — como variáveis de ambiente ou montagens de volume:
 
-**As environment variables:**
+**Como variáveis de ambiente:**
 
 ```yaml
 env:
@@ -239,7 +239,7 @@ env:
       key: password
 ```
 
-**As mounted files:**
+**Como arquivos montados:**
 
 ```yaml
 volumeMounts:
@@ -252,24 +252,24 @@ volumes:
     secretName: db-creds
 ```
 
-When mounted as files, each key becomes a file. The `password` key becomes `/etc/db-creds/password`. This is like putting credentials in a file with restricted permissions — except in Kubernetes, the access control is at the RBAC level, not the filesystem level.
+Quando montados como arquivos, cada chave se torna um arquivo. A chave `password` se torna `/etc/db-creds/password`. Isso é como colocar credenciais em um arquivo com permissões restritas — exceto que no Kubernetes, o controle de acesso é no nível de RBAC, não no nível do sistema de arquivos.
 
-### Secret Types
+### Tipos de Secret
 
-| Type | Purpose |
-|------|---------|
-| `Opaque` | Generic key-value data (default) |
-| `kubernetes.io/tls` | TLS certificates (must contain `tls.crt` and `tls.key`) |
-| `kubernetes.io/dockerconfigjson` | Docker registry credentials |
-| `kubernetes.io/basic-auth` | Basic authentication (username and password) |
-| `kubernetes.io/ssh-auth` | SSH authentication (ssh-privatekey) |
-| `kubernetes.io/service-account-token` | Service account tokens (auto-created) |
+| Tipo | Propósito |
+|------|-----------|
+| `Opaque` | Dados genéricos chave-valor (padrão) |
+| `kubernetes.io/tls` | Certificados TLS (deve conter `tls.crt` e `tls.key`) |
+| `kubernetes.io/dockerconfigjson` | Credenciais de registro Docker |
+| `kubernetes.io/basic-auth` | Autenticação básica (username e password) |
+| `kubernetes.io/ssh-auth` | Autenticação SSH (ssh-privatekey) |
+| `kubernetes.io/service-account-token` | Tokens de service account (criados automaticamente) |
 
 ---
 
-## Environment Variables — Direct Injection
+## Variáveis de Ambiente — Injeção Direta
 
-Besides ConfigMaps and Secrets, you can set environment variables directly in the pod spec:
+Além de ConfigMaps e Secrets, você pode definir variáveis de ambiente diretamente na spec do pod:
 
 ```yaml
 spec:
@@ -291,17 +291,17 @@ spec:
           key: password
 ```
 
-You can mix direct values, ConfigMap references, and Secret references in the same `env:` block. This gives you maximum flexibility — hardcode what's truly static, reference what's shared, and protect what's sensitive.
+Você pode misturar valores diretos, referências a ConfigMaps, e referências a Secrets no mesmo bloco `env:`. Isso dá máxima flexibilidade — codifique diretamente o que é verdadeiramente estático, referencie o que é compartilhado, e proteja o que é sensível.
 
 ---
 
-## The Downward API — Pod Metadata as Configuration
+## A Downward API — Metadados do Pod como Configuração
 
-Sometimes your application needs to know about *itself* — its pod name, namespace, IP address, or resource limits. The Downward API exposes this metadata as environment variables or files, without the application needing to call the Kubernetes API.
+Às vezes sua aplicação precisa saber sobre *si mesma* — seu nome de pod, namespace, endereço IP, ou limites de recursos. A Downward API expõe esses metadados como variáveis de ambiente ou arquivos, sem a aplicação precisar chamar a API do Kubernetes.
 
-Think of it as `/proc/self/status` for pods. On Linux, a process can read `/proc/self/status` to learn its PID, memory usage, and capabilities. In Kubernetes, a pod can use the Downward API to learn its name, namespace, labels, and resource allocations.
+Pense nisso como `/proc/self/status` para pods. No Linux, um processo pode ler `/proc/self/status` para saber seu PID, uso de memória e capabilities. No Kubernetes, um pod pode usar a Downward API para saber seu nome, namespace, labels e alocações de recursos.
 
-**As environment variables:**
+**Como variáveis de ambiente:**
 
 ```yaml
 apiVersion: v1
@@ -347,23 +347,23 @@ spec:
           resource: limits.memory
 ```
 
-Available `fieldRef` fields include:
-- `metadata.name` — pod name
-- `metadata.namespace` — pod namespace
-- `metadata.uid` — pod UID
-- `metadata.labels['<KEY>']` — a specific label value
-- `metadata.annotations['<KEY>']` — a specific annotation value
-- `spec.nodeName` — the node the pod is running on
-- `spec.serviceAccountName` — the service account
-- `status.podIP` — the pod's IP address
+Campos `fieldRef` disponíveis incluem:
+- `metadata.name` — nome do pod
+- `metadata.namespace` — namespace do pod
+- `metadata.uid` — UID do pod
+- `metadata.labels['<KEY>']` — valor de um label específico
+- `metadata.annotations['<KEY>']` — valor de uma annotation específica
+- `spec.nodeName` — o node onde o pod está rodando
+- `spec.serviceAccountName` — a service account
+- `status.podIP` — o endereço IP do pod
 
-This is incredibly useful for logging (include the pod name in every log line), metrics (tag metrics with namespace and node), and service discovery (know your own IP).
+Isso é incrivelmente útil para logging (incluir o nome do pod em cada linha de log), métricas (marcar métricas com namespace e node), e descoberta de serviços (conhecer seu próprio IP).
 
 ---
 
-## Immutable ConfigMaps and Secrets
+## ConfigMaps e Secrets Imutáveis
 
-Starting with Kubernetes v1.21 (stable), you can mark ConfigMaps and Secrets as immutable:
+A partir do Kubernetes v1.21 (estável), você pode marcar ConfigMaps e Secrets como imutáveis:
 
 ```yaml
 apiVersion: v1
@@ -376,53 +376,53 @@ data:
   FEATURE_FLAGS: "dark-mode,new-checkout"
 ```
 
-Once set to `immutable: true`, the data cannot be changed. Any attempt to update it will be rejected by the API server. You must delete and recreate the object to change it.
+Uma vez definido como `immutable: true`, os dados não podem ser alterados. Qualquer tentativa de atualizá-lo será rejeitada pelo API server. Você deve deletar e recriar o objeto para alterá-lo.
 
-Why would you want this?
+Por que você iria querer isso?
 
-1. **Performance** — The kubelet stops watching immutable ConfigMaps/Secrets for changes, reducing API server load. In clusters with thousands of pods, this matters.
-2. **Safety** — Prevents accidental modifications to configuration that shouldn't change during an application's lifetime.
+1. **Performance** — O kubelet para de observar ConfigMaps/Secrets imutáveis por mudanças, reduzindo a carga no API server. Em clusters com milhares de pods, isso importa.
+2. **Segurança** — Previne modificações acidentais em configuração que não deveria mudar durante o tempo de vida de uma aplicação.
 
-Think of it as mounting a filesystem read-only (`mount -o ro`). You can read it, but you can't accidentally (or intentionally) modify it while it's in use.
-
----
-
-## Linux ↔ Kubernetes Comparison
-
-| Linux Concept | K8s Equivalent | Notes |
-|---------------|----------------|-------|
-| `/etc/nginx/nginx.conf` | ConfigMap mounted as file | Cluster-managed configuration |
-| `export ENV_VAR=value` | `env:` in pod spec | Environment variable injection |
-| `/etc/shadow` (restricted file) | Secret | Sensitive data (but still needs encryption!) |
-| `/proc/self/status` | Downward API | Pod metadata exposed to the container |
-| `source /etc/profile.d/*.sh` | `envFrom: configMapRef` | Bulk environment injection |
-| inotify (file change watch) | ConfigMap volume updates | Auto-refresh when config changes (~60-90s) |
-| `mount -o ro` (read-only mount) | `immutable: true` | Performance optimization, prevents changes |
-| `chmod 600 /etc/shadow` | RBAC on Secret objects | Access control (namespace-level, not per-key) |
+Pense nisso como montar um sistema de arquivos somente-leitura (`mount -o ro`). Você pode lê-lo, mas não pode acidentalmente (ou intencionalmente) modificá-lo enquanto está em uso.
 
 ---
 
-> ### 🔀 Where the Linux Analogy Breaks
->
-> - **Config file updates don't trigger service reloads.** In Linux, you edit `/etc/nginx/nginx.conf` and run `systemctl reload nginx`. In Kubernetes, you update the ConfigMap, and... the volume mount eventually refreshes (60–90 seconds), but the application may not notice. There's no built-in `reload` signal. If you used env vars instead of a volume mount, the values never update at all — you need a pod restart. Some projects work around this with sidecar reloaders or hash-based rollout triggers, but it's not a native feature.
->
-> - **Secrets are NOT secure by default.** They're base64-encoded (trivially reversible) and stored unencrypted in etcd unless you explicitly enable encryption at rest. Anyone with `kubectl get secret` access can read your passwords. Treat Secrets as "slightly better than ConfigMaps" for separation of concerns — real security requires external secret managers and proper RBAC policies.
->
-> - **There's no per-key access control.** On Linux, you can `chmod 600 /etc/shadow` and `chmod 644 /etc/passwd` — file-level permissions. In Kubernetes, access control is at the namespace/RBAC level. If someone can read Secrets in a namespace, they can read *all* Secrets in that namespace. There's no equivalent of setting different permissions on individual keys within a ConfigMap or Secret.
+## Comparação Linux ↔ Kubernetes
+
+| Conceito Linux | Equivalente K8s | Notas |
+|----------------|-----------------|-------|
+| `/etc/nginx/nginx.conf` | ConfigMap montado como arquivo | Configuração gerenciada pelo cluster |
+| `export ENV_VAR=value` | `env:` na spec do pod | Injeção de variável de ambiente |
+| `/etc/shadow` (arquivo restrito) | Secret | Dados sensíveis (mas ainda precisa de criptografia!) |
+| `/proc/self/status` | Downward API | Metadados do pod expostos ao container |
+| `source /etc/profile.d/*.sh` | `envFrom: configMapRef` | Injeção em massa de ambiente |
+| inotify (monitoramento de mudança de arquivo) | Atualizações de volume ConfigMap | Auto-atualização quando config muda (~60-90s) |
+| `mount -o ro` (montagem somente-leitura) | `immutable: true` | Otimização de performance, previne mudanças |
+| `chmod 600 /etc/shadow` | RBAC em objetos Secret | Controle de acesso (nível de namespace, não por chave) |
 
 ---
 
-## Diagnostic Lab: Configuration Hands-On
+> ### 🔀 Onde a Analogia com Linux Quebra
+>
+> - **Atualizações de arquivo de config não disparam recarregamentos de serviço.** No Linux, você edita `/etc/nginx/nginx.conf` e executa `systemctl reload nginx`. No Kubernetes, você atualiza o ConfigMap, e... a montagem de volume eventualmente atualiza (60–90 segundos), mas a aplicação pode não perceber. Não há sinal `reload` embutido. Se você usou variáveis de ambiente ao invés de montagem de volume, os valores nunca atualizam — você precisa de um reinício do pod. Alguns projetos contornam isso com sidecar reloaders ou triggers de rollout baseados em hash, mas não é uma funcionalidade nativa.
+>
+> - **Secrets NÃO são seguros por padrão.** Eles são codificados em base64 (trivialmente reversível) e armazenados sem criptografia no etcd a menos que você explicitamente habilite criptografia em repouso. Qualquer pessoa com acesso a `kubectl get secret` pode ler suas senhas. Trate Secrets como "ligeiramente melhor que ConfigMaps" para separação de responsabilidades — segurança real requer gerenciadores de secrets externos e políticas RBAC adequadas.
+>
+> - **Não há controle de acesso por chave.** No Linux, você pode `chmod 600 /etc/shadow` e `chmod 644 /etc/passwd` — permissões no nível de arquivo. No Kubernetes, controle de acesso é no nível de namespace/RBAC. Se alguém pode ler Secrets em um namespace, pode ler *todos* os Secrets naquele namespace. Não há equivalente a definir permissões diferentes em chaves individuais dentro de um ConfigMap ou Secret.
 
-### Prerequisites
+---
+
+## Laboratório Diagnóstico: Configuração Hands-On
+
+### Pré-requisitos
 
 ```bash
 kind create cluster --name config-lab
 ```
 
-### Lab 1: Create and Consume a ConfigMap
+### Lab 1: Criar e Consumir um ConfigMap
 
-**Step 1 — Create a ConfigMap from literals:**
+**Passo 1 — Crie um ConfigMap a partir de literais:**
 
 ```bash
 kubectl create configmap app-config \
@@ -431,7 +431,7 @@ kubectl create configmap app-config \
   --from-literal=CACHE_TTL=300
 ```
 
-**Step 2 — Create a ConfigMap from a file:**
+**Passo 2 — Crie um ConfigMap a partir de um arquivo:**
 
 ```bash
 cat <<'EOF' > nginx.conf
@@ -452,14 +452,14 @@ EOF
 kubectl create configmap nginx-config --from-file=nginx.conf
 ```
 
-**Step 3 — Inspect the ConfigMaps:**
+**Passo 3 — Inspecione os ConfigMaps:**
 
 ```bash
 kubectl get configmap app-config -o yaml
 kubectl describe configmap nginx-config
 ```
 
-**Step 4 — Deploy a pod consuming ConfigMap as environment variables:**
+**Passo 4 — Implante um pod consumindo ConfigMap como variáveis de ambiente:**
 
 ```bash
 cat <<'EOF' | kubectl apply -f -
@@ -479,11 +479,11 @@ EOF
 
 kubectl wait --for=condition=Ready pod/env-consumer --timeout=60s
 
-# Verify the environment variables
+# Verificar as variáveis de ambiente
 kubectl exec env-consumer -- env | grep -E 'LOG_LEVEL|DB_HOST|CACHE_TTL'
 ```
 
-**Step 5 — Deploy a pod consuming ConfigMap as a mounted file:**
+**Passo 5 — Implante um pod consumindo ConfigMap como arquivo montado:**
 
 ```bash
 cat <<'EOF' | kubectl apply -f -
@@ -506,16 +506,16 @@ EOF
 
 kubectl wait --for=condition=Ready pod/volume-consumer --timeout=60s
 
-# Verify the config file is mounted
+# Verificar que o arquivo de config está montado
 kubectl exec volume-consumer -- cat /etc/nginx/conf.d/nginx.conf
 
-# Test that nginx uses our custom config (the /health endpoint)
+# Testar que o nginx usa nossa config personalizada (o endpoint /health)
 kubectl exec volume-consumer -- curl -s http://localhost/health
 ```
 
-### Lab 2: Create and Consume a Secret
+### Lab 2: Criar e Consumir um Secret
 
-**Step 1 — Create a Secret:**
+**Passo 1 — Crie um Secret:**
 
 ```bash
 kubectl create secret generic db-creds \
@@ -523,18 +523,18 @@ kubectl create secret generic db-creds \
   --from-literal=password=supersecret
 ```
 
-**Step 2 — Prove that base64 is not encryption:**
+**Passo 2 — Prove que base64 não é criptografia:**
 
 ```bash
-# View the raw secret
+# Ver o secret bruto
 kubectl get secret db-creds -o yaml
 
-# Decode the password (this is why base64 != encryption)
+# Decodificar a senha (é por isso que base64 != criptografia)
 kubectl get secret db-creds -o jsonpath='{.data.password}' | base64 --decode
-echo  # newline for readability
+echo  # newline para legibilidade
 ```
 
-**Step 3 — Deploy a pod consuming the Secret as a volume mount:**
+**Passo 3 — Implante um pod consumindo o Secret como montagem de volume:**
 
 ```bash
 cat <<'EOF' | kubectl apply -f -
@@ -559,12 +559,12 @@ EOF
 
 kubectl wait --for=condition=Ready pod/secret-consumer --timeout=60s
 
-# Each key is a file in the mount path
+# Cada chave é um arquivo no caminho de montagem
 kubectl exec secret-consumer -- ls /etc/db-creds/
 kubectl exec secret-consumer -- cat /etc/db-creds/password
 ```
 
-**Step 4 — Consume the Secret as an environment variable:**
+**Passo 4 — Consuma o Secret como variável de ambiente:**
 
 ```bash
 cat <<'EOF' | kubectl apply -f -
@@ -591,7 +591,7 @@ kubectl exec secret-env-consumer -- env | grep DB_PASSWORD
 
 ### Lab 3: Downward API
 
-Deploy a pod that exposes its own metadata as environment variables:
+Implante um pod que expõe seus próprios metadados como variáveis de ambiente:
 
 ```bash
 cat <<'EOF' | kubectl apply -f -
@@ -640,11 +640,11 @@ EOF
 
 kubectl wait --for=condition=Ready pod/downward-demo --timeout=60s
 
-# The pod knows about itself without calling the Kubernetes API
+# O pod sabe sobre si mesmo sem chamar a API do Kubernetes
 kubectl exec downward-demo -- env | grep -E 'POD_|NODE_'
 ```
 
-You should see output like:
+Você deve ver saída como:
 
 ```
 POD_NAME=downward-demo
@@ -654,18 +654,18 @@ NODE_NAME=config-lab-control-plane
 POD_MEMORY_LIMIT=67108864
 ```
 
-The pod knows its own name, namespace, IP, the node it's running on, and its memory limit — all without any Kubernetes API calls.
+O pod sabe seu próprio nome, namespace, IP, o node onde está rodando, e seu limite de memória — tudo sem nenhuma chamada à API do Kubernetes.
 
-### Lab 4: Update a ConfigMap and See Propagation
+### Lab 4: Atualizar um ConfigMap e Ver a Propagação
 
-**Step 1 — Verify current state:**
+**Passo 1 — Verifique o estado atual:**
 
 ```bash
-# The volume-consumer pod from Lab 1 should still be running
+# O pod volume-consumer do Lab 1 deve ainda estar rodando
 kubectl exec volume-consumer -- cat /etc/nginx/conf.d/nginx.conf | head -3
 ```
 
-**Step 2 — Update the ConfigMap:**
+**Passo 2 — Atualize o ConfigMap:**
 
 ```bash
 cat <<'EOF' > nginx-updated.conf
@@ -691,36 +691,36 @@ kubectl create configmap nginx-config --from-file=nginx.conf=nginx-updated.conf 
   --dry-run=client -o yaml | kubectl apply -f -
 ```
 
-**Step 3 — Wait for propagation and verify:**
+**Passo 3 — Aguarde a propagação e verifique:**
 
 ```bash
-# Volume mounts update within roughly 60-90 seconds
-echo "Waiting for ConfigMap propagation (up to 90 seconds)..."
+# Montagens de volume atualizam em aproximadamente 60-90 segundos
+echo "Aguardando propagação do ConfigMap (até 90 segundos)..."
 sleep 90
 
-# Check if the file was updated (look for the /ready location)
+# Verificar se o arquivo foi atualizado (procure o bloco location /ready)
 kubectl exec volume-consumer -- cat /etc/nginx/conf.d/nginx.conf
 ```
 
-You should see the updated config with the new `/ready` location block.
+Você deve ver a configuração atualizada com o novo bloco location `/ready`.
 
-**Important:** The file on disk was updated, but nginx doesn't know about it yet. You'd need to `nginx -s reload` inside the container (or restart the pod) for nginx to pick up the change. Kubernetes updates the file; your application is responsible for noticing.
+**Importante:** O arquivo no disco foi atualizado, mas o nginx não sabe disso ainda. Você precisaria executar `nginx -s reload` dentro do container (ou reiniciar o pod) para que o nginx pegue a mudança. Kubernetes atualiza o arquivo; sua aplicação é responsável por perceber.
 
-**Step 4 — Show that env vars do NOT update:**
+**Passo 4 — Mostre que variáveis de ambiente NÃO atualizam:**
 
 ```bash
-# env-consumer still has the original values
+# env-consumer ainda tem os valores originais
 kubectl exec env-consumer -- env | grep LOG_LEVEL
 
-# Even if we update the ConfigMap...
+# Mesmo se atualizarmos o ConfigMap...
 kubectl patch configmap app-config -p '{"data":{"LOG_LEVEL":"debug"}}'
 
-# ...the env var in the running pod is unchanged
+# ...a variável de ambiente no pod rodando não muda
 sleep 5
 kubectl exec env-consumer -- env | grep LOG_LEVEL
-# Still shows "info", not "debug"
+# Ainda mostra "info", não "debug"
 
-# Only a pod restart picks up the new env var value
+# Apenas um reinício do pod pega o novo valor da variável de ambiente
 kubectl delete pod env-consumer
 cat <<'EOF' | kubectl apply -f -
 apiVersion: v1
@@ -739,40 +739,40 @@ EOF
 
 kubectl wait --for=condition=Ready pod/env-consumer --timeout=60s
 kubectl exec env-consumer -- env | grep LOG_LEVEL
-# Now shows "debug"
+# Agora mostra "debug"
 ```
 
-### Clean Up
+### Limpeza
 
 ```bash
-# Delete the Kind cluster
+# Deletar o cluster Kind
 kind delete cluster --name config-lab
 
-# Remove temp files
+# Remover arquivos temporários
 rm -f nginx.conf nginx-updated.conf
 ```
 
 ---
 
-## Key Takeaways
+## Principais Conclusões
 
-1. **ConfigMaps externalize application configuration.** They hold non-sensitive key-value data or entire configuration files, injected into pods as environment variables or mounted volumes.
+1. **ConfigMaps externalizam configuração de aplicação.** Eles contêm dados chave-valor não sensíveis ou arquivos de configuração inteiros, injetados em pods como variáveis de ambiente ou volumes montados.
 
-2. **Secrets are for sensitive data, but base64 is not encryption.** Anyone who can `kubectl get secret` can decode your passwords. Use RBAC, encryption at rest, and external secret managers for real security.
+2. **Secrets são para dados sensíveis, mas base64 não é criptografia.** Qualquer pessoa que possa executar `kubectl get secret` pode decodificar suas senhas. Use RBAC, criptografia em repouso, e gerenciadores de secrets externos para segurança real.
 
-3. **Volume-mounted ConfigMaps auto-update; env vars never do.** If you need live configuration updates without pod restarts, use volume mounts and have your application watch for file changes.
+3. **ConfigMaps montados como volume auto-atualizam; variáveis de ambiente nunca.** Se você precisa de atualizações de configuração em tempo real sem reinícios de pod, use montagens de volume e faça sua aplicação monitorar mudanças de arquivo.
 
-4. **The Downward API lets pods know about themselves.** Pod name, namespace, IP, node, labels, and resource limits can all be injected as env vars or files — no Kubernetes API calls needed.
+4. **A Downward API permite que pods saibam sobre si mesmos.** Nome do pod, namespace, IP, node, labels e limites de recursos podem todos ser injetados como variáveis de ambiente ou arquivos — sem chamadas à API do Kubernetes necessárias.
 
-5. **`envFrom` is bulk injection; `env` is selective injection.** Use `envFrom` to inject all keys from a ConfigMap or Secret. Use `env` with `valueFrom` to pick specific keys or rename them.
+5. **`envFrom` é injeção em massa; `env` é injeção seletiva.** Use `envFrom` para injetar todas as chaves de um ConfigMap ou Secret. Use `env` com `valueFrom` para pegar chaves específicas ou renomeá-las.
 
-6. **Immutable ConfigMaps and Secrets improve performance.** Mark them as `immutable: true` to stop the kubelet from watching for changes — essential in clusters with thousands of mounted ConfigMaps.
+6. **ConfigMaps e Secrets imutáveis melhoram a performance.** Marque-os como `immutable: true` para parar o kubelet de monitorar mudanças — essencial em clusters com milhares de ConfigMaps montados.
 
-7. **Separate config from code, always.** The same container image should run identically in dev, staging, and production. Only the injected ConfigMaps, Secrets, and environment variables should differ.
+7. **Separe configuração do código, sempre.** A mesma imagem de container deve rodar identicamente em dev, staging e produção. Apenas os ConfigMaps, Secrets e variáveis de ambiente injetados devem diferir.
 
 ---
 
-## Further Reading
+## Leitura Complementar
 
 - [ConfigMaps](https://kubernetes.io/docs/concepts/configuration/configmap/)
 - [Secrets](https://kubernetes.io/docs/concepts/configuration/secret/)
@@ -784,5 +784,5 @@ rm -f nginx.conf nginx-updated.conf
 
 ---
 
-**Previous:** [Chapter 8 — Storage and Persistence](08-storage-and-persistence.md)
-**Next:** [Chapter 10 — Packaging and Delivery](10-packaging-and-delivery.md)
+**Anterior:** [Capítulo 8 — Armazenamento e Persistência](08-storage-and-persistence.md)
+**Próximo:** [Capítulo 10 — Empacotamento e Entrega](10-packaging-and-delivery.md)

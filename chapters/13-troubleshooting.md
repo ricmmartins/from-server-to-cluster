@@ -1,246 +1,246 @@
-# Chapter 13: Troubleshooting
+# Capítulo 13: Solução de Problemas
 
-*"The first rule of debugging: don't guess. Observe, hypothesize, test."*
-
----
-
-## From `/var/log` to `kubectl describe`
-
-On a Linux server, when something breaks, your muscle memory takes over. You check the process: `systemctl status nginx`. You read the logs: `journalctl -u nginx -f`. You check the network: `ss -tlnp`, `curl localhost:80`. You look at resources: `top`, `df -h`. You know where everything lives, because everything lives on the one machine in front of you.
-
-In Kubernetes, the same instincts apply — but the execution is different. The process you want to inspect might be running on any of a dozen nodes. The logs might vanish the moment the pod restarts. The network isn't just local sockets — it's a cluster-wide overlay managed by CNI plugins and kube-proxy rules. And the "machine" you're debugging on is the API server, accessed remotely through `kubectl`.
-
-Here's the good news: the mental model is the same. Something is broken. You need to find out what, where, and why. The difference is that your toolbox changes from `systemctl`, `journalctl`, and `ss` to `kubectl get`, `kubectl describe`, and `kubectl logs`. And the debugging hierarchy changes from "check the machine" to "check the pod, then the container, then the node, then the cluster."
-
-This chapter teaches you a systematic approach to Kubernetes troubleshooting — the same way experienced Linux sysadmins debug servers, translated to the orchestrated world.
+*"A primeira regra do debugging: não adivinhe. Observe, formule hipóteses, teste."*
 
 ---
 
-## The Debugging Hierarchy
+## De `/var/log` para `kubectl describe`
 
-When something goes wrong in Kubernetes, work your way outward:
+Em um servidor Linux, quando algo quebra, sua memória muscular assume o controle. Você verifica o processo: `systemctl status nginx`. Lê os logs: `journalctl -u nginx -f`. Verifica a rede: `ss -tlnp`, `curl localhost:80`. Olha os recursos: `top`, `df -h`. Você sabe onde tudo está, porque tudo está na única máquina à sua frente.
+
+No Kubernetes, os mesmos instintos se aplicam — mas a execução é diferente. O processo que você quer inspecionar pode estar rodando em qualquer um de uma dúzia de nós. Os logs podem desaparecer no momento em que o pod reinicia. A rede não são apenas sockets locais — é um overlay de todo o cluster gerenciado por plugins CNI e regras do kube-proxy. E a "máquina" que você está debugando é o API server, acessado remotamente através do `kubectl`.
+
+Aqui está a boa notícia: o modelo mental é o mesmo. Algo está quebrado. Você precisa descobrir o quê, onde e por quê. A diferença é que sua caixa de ferramentas muda de `systemctl`, `journalctl` e `ss` para `kubectl get`, `kubectl describe` e `kubectl logs`. E a hierarquia de debugging muda de "verificar a máquina" para "verificar o pod, depois o container, depois o nó, depois o cluster."
+
+Este capítulo ensina uma abordagem sistemática para solução de problemas no Kubernetes — da mesma forma que sysadmins Linux experientes debugam servidores, traduzida para o mundo orquestrado.
+
+---
+
+## A Hierarquia de Debugging
+
+Quando algo dá errado no Kubernetes, trabalhe de dentro para fora:
 
 ```
 Pod → Container → Node → Cluster
 ```
 
-1. **Pod level:** Is the pod even running? What state is it in? What do the events say?
-2. **Container level:** Did the container start? What do the logs say? Is it crashing?
-3. **Node level:** Is the node healthy? Does it have enough resources? Is the kubelet running?
-4. **Cluster level:** Is the control plane operational? Are there cluster-wide resource constraints?
+1. **Nível do Pod:** O pod está rodando? Em que estado ele está? O que os eventos dizem?
+2. **Nível do Container:** O container iniciou? O que os logs dizem? Está crashando?
+3. **Nível do Node:** O nó está saudável? Tem recursos suficientes? O kubelet está rodando?
+4. **Nível do Cluster:** O control plane está operacional? Existem restrições de recursos em todo o cluster?
 
-Most issues (90%+) are caught at the Pod and Container levels. Start there.
+A maioria dos problemas (90%+) são detectados nos níveis de Pod e Container. Comece por aí.
 
 ---
 
-## Essential Debugging Commands
+## Comandos Essenciais de Debugging
 
-### `kubectl get pods` — Status at a Glance
+### `kubectl get pods` — Status Rápido
 
 ```bash
 kubectl get pods -o wide
 ```
 
-The STATUS column is your first indicator:
+A coluna STATUS é seu primeiro indicador:
 
-| Status | What It Means |
+| Status | O Que Significa |
 |--------|--------------|
-| **Running** | Container(s) started and not (yet) terminated |
-| **Pending** | Pod accepted but not scheduled or image not pulled |
-| **CrashLoopBackOff** | Container crashes repeatedly; K8s backs off restarts |
-| **ImagePullBackOff** | Can't pull the container image |
-| **OOMKilled** | Container exceeded its memory limit |
-| **CreateContainerConfigError** | Bad ConfigMap/Secret reference |
-| **Evicted** | Node under resource pressure, pod was kicked |
-| **Terminating** | Pod is shutting down (stuck here = finalizer issue) |
-| **Init:Error** | Init container failed |
-| **Completed** | Pod ran to completion (normal for Jobs) |
+| **Running** | Container(s) iniciou(aram) e não foi(ram) (ainda) terminado(s) |
+| **Pending** | Pod aceito mas não agendado ou imagem não baixada |
+| **CrashLoopBackOff** | Container crasha repetidamente; K8s recua nos restarts |
+| **ImagePullBackOff** | Não consegue baixar a imagem do container |
+| **OOMKilled** | Container excedeu seu limite de memória |
+| **CreateContainerConfigError** | Referência inválida a ConfigMap/Secret |
+| **Evicted** | Nó sob pressão de recursos, pod foi removido |
+| **Terminating** | Pod está desligando (preso aqui = problema de finalizer) |
+| **Init:Error** | Init container falhou |
+| **Completed** | Pod executou até o final (normal para Jobs) |
 
-Pay attention to the **RESTARTS** column. A pod showing `Running` with 47 restarts is *not* healthy.
+Preste atenção na coluna **RESTARTS**. Um pod mostrando `Running` com 47 restarts *não* está saudável.
 
-### `kubectl describe pod` — The Most Useful Command
+### `kubectl describe pod` — O Comando Mais Útil
 
 ```bash
 kubectl describe pod <pod-name>
 ```
 
-This single command shows you:
-- **Status and Conditions** — why the pod is in its current state
-- **Events** — the chronological story of what happened (scheduling, pulling, creating, starting, killing)
-- **Container state** — current state, last state, exit codes, restart count
-- **Resource requests/limits** — what the pod asked for
-- **Volumes and mounts** — what's attached and where
-- **Node assignment** — where it landed (or why it didn't)
+Este único comando mostra:
+- **Status e Conditions** — por que o pod está no estado atual
+- **Events** — a história cronológica do que aconteceu (agendamento, pull, criação, início, encerramento)
+- **Estado do container** — estado atual, estado anterior, códigos de saída, contagem de restarts
+- **Requests/limits de recursos** — o que o pod solicitou
+- **Volumes e mounts** — o que está anexado e onde
+- **Atribuição de nó** — onde ele foi alocado (ou por que não foi)
 
-> **Pro tip:** Always read the **Events** section at the bottom. It tells the story.
+> **Dica profissional:** Sempre leia a seção de **Events** no final. Ela conta a história.
 
-### `kubectl logs` — Container Output
+### `kubectl logs` — Saída do Container
 
 ```bash
-# Current container logs
+# Logs do container atual
 kubectl logs <pod-name>
 
-# Specific container in multi-container pod
+# Container específico em pod multi-container
 kubectl logs <pod-name> -c <container-name>
 
-# Previous crashed container (the one BEFORE the current restart)
+# Container anterior que crashou (o que existia ANTES do restart atual)
 kubectl logs <pod-name> -p
 
-# Follow logs in real-time
+# Acompanhar logs em tempo real
 kubectl logs <pod-name> -f
 
-# Last 50 lines
+# Últimas 50 linhas
 kubectl logs <pod-name> --tail=50
 
-# Logs since a specific time
+# Logs desde um tempo específico
 kubectl logs <pod-name> --since=5m
 ```
 
-The `-p` (previous) flag is critical. When a pod is in CrashLoopBackOff, the current container might have zero logs (it just started). The *previous* container has the crash output.
+A flag `-p` (previous) é crítica. Quando um pod está em CrashLoopBackOff, o container atual pode ter zero logs (acabou de iniciar). O container *anterior* tem a saída do crash.
 
-### `kubectl get events` — Cluster Timeline
+### `kubectl get events` — Linha do Tempo do Cluster
 
 ```bash
 kubectl get events --sort-by=.metadata.creationTimestamp
 ```
 
-Events are the cluster's activity log. They show scheduling decisions, image pulls, container starts, health check failures, scaling actions, and errors — all timestamped and sortable.
+Events são o log de atividades do cluster. Eles mostram decisões de agendamento, pulls de imagem, inícios de containers, falhas de health check, ações de scaling e erros — tudo com timestamp e ordenável.
 
 ```bash
-# Events in a specific namespace
+# Events em um namespace específico
 kubectl get events -n my-namespace --sort-by=.metadata.creationTimestamp
 
-# Watch events in real-time
+# Acompanhar events em tempo real
 kubectl get events --watch
 ```
 
-### `kubectl debug` — Ephemeral Debug Containers
+### `kubectl debug` — Containers Efêmeros de Debug
 
 ```bash
-# Attach a debug container to a running pod
+# Anexar um container de debug a um pod em execução
 kubectl debug <pod-name> -it --image=busybox:1.36 --target=<container-name>
 
-# Create a copy of a pod with a debug container
+# Criar uma cópia de um pod com um container de debug
 kubectl debug <pod-name> -it --image=busybox:1.36 --copy-to=debug-pod
 
-# Debug a node directly
+# Debugar um nó diretamente
 kubectl debug node/<node-name> -it --image=busybox:1.36
 ```
 
-Ephemeral containers are injected into an existing pod without restarting it. They share the pod's network namespace, so you can inspect network connectivity, check filesystem mounts, and run diagnostic tools.
+Containers efêmeros são injetados em um pod existente sem reiniciá-lo. Eles compartilham o namespace de rede do pod, então você pode inspecionar conectividade de rede, verificar montagens de filesystem e executar ferramentas de diagnóstico.
 
-### `kubectl exec` — Interactive Shell
+### `kubectl exec` — Shell Interativo
 
 ```bash
-# Run a shell in a running container
+# Executar um shell em um container em execução
 kubectl exec -it <pod-name> -- /bin/sh
 
-# Specific container
+# Container específico
 kubectl exec -it <pod-name> -c <container-name> -- /bin/bash
 
-# Run a single command
+# Executar um único comando
 kubectl exec <pod-name> -- cat /etc/resolv.conf
 ```
 
-### `kubectl port-forward` — Test Connectivity
+### `kubectl port-forward` — Testar Conectividade
 
 ```bash
-# Forward local port to pod
+# Encaminhar porta local para o pod
 kubectl port-forward pod/<pod-name> 8080:80
 
-# Forward to a service
+# Encaminhar para um service
 kubectl port-forward svc/<service-name> 8080:80
 ```
 
-This bypasses Services and Ingress entirely — useful for confirming the application itself works before investigating network layers.
+Isso bypassa Services e Ingress inteiramente — útil para confirmar que a aplicação em si funciona antes de investigar camadas de rede.
 
 ---
 
-## Common Pod Failure States — Deep Dive
+## Estados Comuns de Falha de Pod — Análise Detalhada
 
-### Pending — Can't Be Scheduled
+### Pending — Não Pode Ser Agendado
 
-The scheduler can't find a suitable node. Common causes:
+O scheduler não consegue encontrar um nó adequado. Causas comuns:
 
-- **Insufficient resources:** No node has enough CPU/memory to satisfy requests
-- **NodeSelector/affinity mismatch:** Pod requires a label no node has
-- **Taints without tolerations:** Nodes are tainted, pod doesn't tolerate
-- **PVC not bound:** Pod requests a volume that doesn't exist or can't be provisioned
-- **Pod topology constraints:** Can't satisfy spread requirements
+- **Recursos insuficientes:** Nenhum nó tem CPU/memória suficiente para satisfazer os requests
+- **NodeSelector/affinity incompatível:** Pod requer um label que nenhum nó possui
+- **Taints sem tolerations:** Nós estão com taint, pod não tolera
+- **PVC não vinculado:** Pod solicita um volume que não existe ou não pode ser provisionado
+- **Restrições de topologia de pod:** Não consegue satisfazer requisitos de distribuição
 
-**Diagnosis:**
+**Diagnóstico:**
 ```bash
 kubectl describe pod <pending-pod> | grep -A 20 "Events"
-# Look for: "FailedScheduling" with the reason
+# Procure por: "FailedScheduling" com o motivo
 ```
 
-### ImagePullBackOff — Can't Get the Image
+### ImagePullBackOff — Não Consegue Obter a Imagem
 
-The container runtime can't pull the specified image. Common causes:
+O container runtime não consegue baixar a imagem especificada. Causas comuns:
 
-- **Typo in image name:** `ngnix` instead of `nginx`
-- **Tag doesn't exist:** `nginx:1.99` (no such version)
-- **Private registry:** Missing `imagePullSecrets` on the pod
-- **Rate limiting:** Docker Hub rate limits exceeded
-- **Registry down:** The registry server is unreachable
+- **Erro de digitação no nome da imagem:** `ngnix` em vez de `nginx`
+- **Tag não existe:** `nginx:1.99` (versão inexistente)
+- **Registry privado:** `imagePullSecrets` ausente no pod
+- **Rate limiting:** Limites de taxa do Docker Hub excedidos
+- **Registry indisponível:** O servidor do registry está inacessível
 
-**Diagnosis:**
+**Diagnóstico:**
 ```bash
 kubectl describe pod <pod> | grep -A 5 "Events"
-# Look for: "Failed to pull image" with the specific error
+# Procure por: "Failed to pull image" com o erro específico
 ```
 
-### CrashLoopBackOff — Crashes Repeatedly
+### CrashLoopBackOff — Crasha Repetidamente
 
-The container starts, crashes, and K8s restarts it with exponential backoff (10s, 20s, 40s, ... up to 5 minutes).
+O container inicia, crasha, e o K8s reinicia com backoff exponencial (10s, 20s, 40s, ... até 5 minutos).
 
-- **Application bug:** Code exits with non-zero immediately
-- **Missing dependency:** Required env var, config file, or service connection
-- **Bad entrypoint:** Wrong command in Dockerfile or pod spec
-- **Failing liveness probe:** Probe kills the container before it's ready
+- **Bug na aplicação:** Código sai com código diferente de zero imediatamente
+- **Dependência ausente:** Variável de ambiente, arquivo de configuração ou conexão de serviço necessária
+- **Entrypoint incorreto:** Comando errado no Dockerfile ou spec do pod
+- **Liveness probe falhando:** Probe mata o container antes de estar pronto
 
-**Diagnosis:**
+**Diagnóstico:**
 ```bash
-# Check previous container's logs
+# Verificar os logs do container ANTERIOR que crashou
 kubectl logs <pod> -p
 
-# Check the exit code
+# Verificar o código de saída
 kubectl describe pod <pod> | grep -A 5 "Last State"
 ```
 
-Common exit codes:
-- **Exit 1** — general application error
-- **Exit 137** — killed by SIGKILL (OOMKilled or liveness probe)
+Códigos de saída comuns:
+- **Exit 1** — erro geral da aplicação
+- **Exit 137** — morto por SIGKILL (OOMKilled ou liveness probe)
 - **Exit 139** — segfault (SIGSEGV)
-- **Exit 143** — SIGTERM (graceful shutdown)
+- **Exit 143** — SIGTERM (desligamento gracioso)
 
-### OOMKilled — Out of Memory
+### OOMKilled — Sem Memória
 
-The container exceeded its memory limit and was killed by the Linux OOM killer (via cgroups).
+O container excedeu seu limite de memória e foi morto pelo OOM killer do Linux (via cgroups).
 
-**Diagnosis:**
+**Diagnóstico:**
 ```bash
 kubectl describe pod <pod> | grep -i "OOMKilled"
 kubectl describe pod <pod> | grep -A 3 "Last State"
 ```
 
-**Fix:** Increase the memory limit, or fix the memory leak in the application.
+**Correção:** Aumente o limite de memória, ou corrija o vazamento de memória na aplicação.
 
-### CreateContainerConfigError — Bad Config Reference
+### CreateContainerConfigError — Referência de Config Inválida
 
-The pod spec references a ConfigMap or Secret that doesn't exist.
+O spec do pod referencia um ConfigMap ou Secret que não existe.
 
-**Diagnosis:**
+**Diagnóstico:**
 ```bash
 kubectl describe pod <pod> | grep -A 5 "Events"
 # "Error: configmap \"my-config\" not found"
 ```
 
-### Evicted — Node Pressure
+### Evicted — Pressão no Nó
 
-The kubelet evicts pods when the node runs low on disk, memory, or PIDs.
+O kubelet remove pods quando o nó fica com pouco disco, memória ou PIDs.
 
-**Diagnosis:**
+**Diagnóstico:**
 ```bash
 kubectl get pods | grep Evicted
 kubectl describe pod <evicted-pod> | grep -i "evict"
@@ -249,38 +249,38 @@ kubectl describe node <node> | grep -A 10 "Conditions"
 
 ---
 
-## Linux ↔ Kubernetes Debugging Comparison
+## Comparação de Debugging Linux ↔ Kubernetes
 
-| Linux Debugging | K8s Equivalent | What It Shows |
+| Debugging Linux | Equivalente K8s | O Que Mostra |
 |----------------|---------------|---------------|
-| `systemctl status svc` | `kubectl get pods` | Process/pod state |
-| `journalctl -u svc` | `kubectl logs pod` | Application output |
-| `journalctl -xe` | `kubectl get events` | System-level events timeline |
-| `ps aux`, `top` | `kubectl top pods` | Resource usage |
-| `strace -p PID` | `kubectl debug` (ephemeral) | Deep container inspection |
-| `ss -tlnp` | `kubectl get svc,endpoints` | Network listeners and backends |
-| `ping`, `curl`, `traceroute` | `kubectl exec -- wget/curl` | Network connectivity testing |
-| `dmesg`, `/var/log/syslog` | `kubectl describe node` | Node-level issues (OOM, disk) |
-| `df -h` | `kubectl describe node` Conditions | Disk pressure detection |
+| `systemctl status svc` | `kubectl get pods` | Estado do processo/pod |
+| `journalctl -u svc` | `kubectl logs pod` | Saída da aplicação |
+| `journalctl -xe` | `kubectl get events` | Linha do tempo de eventos do sistema |
+| `ps aux`, `top` | `kubectl top pods` | Uso de recursos |
+| `strace -p PID` | `kubectl debug` (efêmero) | Inspeção profunda do container |
+| `ss -tlnp` | `kubectl get svc,endpoints` | Listeners de rede e backends |
+| `ping`, `curl`, `traceroute` | `kubectl exec -- wget/curl` | Teste de conectividade de rede |
+| `dmesg`, `/var/log/syslog` | `kubectl describe node` | Problemas no nível do nó (OOM, disco) |
+| `df -h` | `kubectl describe node` Conditions | Detecção de pressão de disco |
 
 ---
 
-> ### ⚠️ Where the Linux Analogy Breaks
+> ### ⚠️ Onde a Analogia com Linux Quebra
 >
-> **Remote debugging vs. local access:** On Linux, you debug on the machine itself — SSH in, run commands, read files. In Kubernetes, the "machine" is abstracted away. You debug through the API server using `kubectl`. If the API server is down, you're locked out entirely (unlike Linux where you can still use the local console or IPMI). Your debugging toolchain depends on the cluster being at least partially functional.
+> **Debugging remoto vs. acesso local:** No Linux, você debuga na própria máquina — faz SSH, executa comandos, lê arquivos. No Kubernetes, a "máquina" é abstraída. Você debuga através do API server usando `kubectl`. Se o API server estiver fora, você está completamente bloqueado (diferente do Linux onde ainda pode usar o console local ou IPMI). Sua cadeia de ferramentas de debugging depende do cluster estar pelo menos parcialmente funcional.
 >
-> **Automatic restarts mask failures:** Linux processes crash and stay dead until you restart them. Kubernetes pods crash and get automatically restarted — that's CrashLoopBackOff. This can mask issues: the pod status shows "Running" but the RESTARTS column shows 47. Always check RESTARTS. A pod that's been running for 2 minutes with 50 restarts is not "working."
+> **Restarts automáticos mascaram falhas:** Processos Linux crasham e ficam mortos até você reiniciá-los. Pods Kubernetes crasham e são automaticamente reiniciados — isso é CrashLoopBackOff. Isso pode mascarar problemas: o status do pod mostra "Running" mas a coluna RESTARTS mostra 47. Sempre verifique RESTARTS. Um pod que está rodando há 2 minutos com 50 restarts não está "funcionando."
 >
-> **Ephemeral logs:** Logs in Linux persist in `/var/log` — you can always go back and read them. Pod logs vanish when the pod is deleted or replaced. If you need to investigate a crash from yesterday, those logs are gone unless you shipped them externally (Fluent Bit, Loki, etc.) BEFORE the pod died. In production, centralized logging isn't optional — it's a prerequisite for debugging.
+> **Logs efêmeros:** Logs no Linux persistem em `/var/log` — você sempre pode voltar e lê-los. Logs de pods desaparecem quando o pod é deletado ou substituído. Se você precisar investigar um crash de ontem, esses logs se foram a menos que você os tenha enviado externamente (Fluent Bit, Loki, etc.) ANTES do pod morrer. Em produção, logging centralizado não é opcional — é um pré-requisito para debugging.
 
 ---
 
-## Diagnostic Lab: 5 Real-World Troubleshooting Scenarios
+## Laboratório Diagnóstico: 5 Cenários Reais de Solução de Problemas
 
-### Prerequisites
+### Pré-requisitos
 
 ```bash
-# Create a Kind cluster for troubleshooting practice
+# Criar um cluster Kind para prática de troubleshooting
 kind create cluster --name troubleshooting-lab --config - <<EOF
 kind: Cluster
 apiVersion: kind.x-k8s.io/v1alpha4
@@ -290,16 +290,16 @@ nodes:
 - role: worker
 EOF
 
-# Verify cluster is ready
+# Verificar que o cluster está pronto
 kubectl get nodes
 kubectl cluster-info
 ```
 
 ---
 
-### Scenario 1: Pod Stuck in Pending
+### Cenário 1: Pod Preso em Pending
 
-**Deploy the broken state:**
+**Implantar o estado quebrado:**
 
 ```bash
 cat <<'EOF' | kubectl apply -f -
@@ -329,43 +329,43 @@ spec:
 EOF
 ```
 
-This pod requests 100 CPUs and 256 GiB of memory — far more than any node in a Kind cluster can provide.
+Este pod solicita 100 CPUs e 256 GiB de memória — muito mais do que qualquer nó em um cluster Kind pode fornecer.
 
-**Diagnose step by step:**
+**Diagnosticar passo a passo:**
 
 ```bash
-# Step 1: Check pod status
+# Passo 1: Verificar status do pod
 kubectl get pods
 # STATUS: Pending
 
-# Step 2: Describe the pod — read the Events section
+# Passo 2: Descrever o pod — leia a seção Events
 kubectl describe pod -l app=greedy-app
-# Events will show:
+# Events mostrarão:
 #   Warning  FailedScheduling  ... 0/3 nodes are available:
 #   3 Insufficient cpu, 3 Insufficient memory.
 
-# Step 3: Check available node resources
+# Passo 3: Verificar recursos disponíveis nos nós
 kubectl describe nodes | grep -A 5 "Allocatable"
 ```
 
-**Apply the fix:**
+**Aplicar a correção:**
 
 ```bash
-# Fix: set reasonable resource requests
+# Correção: definir requests de recursos razoáveis
 kubectl patch deployment greedy-app --type='json' -p='[
   {"op": "replace", "path": "/spec/template/spec/containers/0/resources/requests/cpu", "value": "100m"},
   {"op": "replace", "path": "/spec/template/spec/containers/0/resources/requests/memory", "value": "128Mi"}
 ]'
 ```
 
-**Verify resolution:**
+**Verificar resolução:**
 
 ```bash
 kubectl get pods -l app=greedy-app -w
-# Wait until STATUS shows Running
+# Aguarde até STATUS mostrar Running
 ```
 
-**Clean up:**
+**Limpeza:**
 
 ```bash
 kubectl delete deployment greedy-app
@@ -373,9 +373,9 @@ kubectl delete deployment greedy-app
 
 ---
 
-### Scenario 2: CrashLoopBackOff
+### Cenário 2: CrashLoopBackOff
 
-**Deploy the broken state:**
+**Implantar o estado quebrado:**
 
 ```bash
 cat <<'EOF' | kubectl apply -f -
@@ -405,38 +405,38 @@ spec:
 EOF
 ```
 
-This container starts, prints an error about a missing database URL, and exits with code 1.
+Este container inicia, imprime um erro sobre uma URL de banco de dados ausente e sai com código 1.
 
-**Diagnose step by step:**
+**Diagnosticar passo a passo:**
 
 ```bash
-# Step 1: Check pod status (wait ~30 seconds for backoff to show)
+# Passo 1: Verificar status do pod (aguarde ~30 segundos para o backoff aparecer)
 kubectl get pods -l app=crash-app
 # STATUS: CrashLoopBackOff, RESTARTS: 2+
 
-# Step 2: Check the logs of the PREVIOUS crashed container
+# Passo 2: Verificar os logs do container ANTERIOR que crashou
 kubectl logs -l app=crash-app -p
-# Output: "Starting app..."
+# Saída: "Starting app..."
 #         "FATAL: Missing DATABASE_URL"
 
-# Step 3: Check current logs (might be empty if container just restarted)
+# Passo 3: Verificar logs atuais (pode estar vazio se o container acabou de reiniciar)
 kubectl logs -l app=crash-app
 
-# Step 4: Describe to see exit code and state
+# Passo 4: Descrever para ver código de saída e estado
 kubectl describe pod -l app=crash-app | grep -A 10 "Last State"
 # Last State: Terminated
 #   Reason: Error
 #   Exit Code: 1
 ```
 
-**Apply the fix:**
+**Aplicar a correção:**
 
 ```bash
-# Fix: provide the missing environment variable
+# Correção: fornecer a variável de ambiente ausente
 kubectl set env deployment/crash-app DATABASE_URL="postgres://db:5432/myapp"
 ```
 
-Wait — this pod will still crash because the busybox command is hardcoded. Let's fix the command too:
+Espere — este pod ainda vai crashar porque o comando do busybox está hardcoded. Vamos corrigir o comando também:
 
 ```bash
 kubectl patch deployment crash-app --type='json' -p='[
@@ -444,18 +444,18 @@ kubectl patch deployment crash-app --type='json' -p='[
 ]'
 ```
 
-**Verify resolution:**
+**Verificar resolução:**
 
 ```bash
 kubectl get pods -l app=crash-app -w
-# Wait for STATUS: Running, RESTARTS: 0
+# Aguarde STATUS: Running, RESTARTS: 0
 
 kubectl logs -l app=crash-app
 # "Starting app..."
 # "Connected to postgres://db:5432/myapp"
 ```
 
-**Clean up:**
+**Limpeza:**
 
 ```bash
 kubectl delete deployment crash-app
@@ -463,9 +463,9 @@ kubectl delete deployment crash-app
 
 ---
 
-### Scenario 3: Service Not Reachable
+### Cenário 3: Service Inacessível
 
-**Deploy the broken state:**
+**Implantar o estado quebrado:**
 
 ```bash
 cat <<'EOF' | kubectl apply -f -
@@ -506,57 +506,57 @@ spec:
 EOF
 ```
 
-The Service selector says `app: web-app-typo` but the pods have `app: web-app`.
+O selector do Service diz `app: web-app-typo` mas os pods têm `app: web-app`.
 
-**Diagnose step by step:**
+**Diagnosticar passo a passo:**
 
 ```bash
-# Step 1: Check pods are running
+# Passo 1: Verificar se os pods estão rodando
 kubectl get pods -l app=web-app
-# STATUS: Running (pods are fine!)
+# STATUS: Running (pods estão bem!)
 
-# Step 2: Check the service
+# Passo 2: Verificar o service
 kubectl get svc web-service
-# ClusterIP assigned — looks normal
+# ClusterIP atribuído — parece normal
 
-# Step 3: Check endpoints (THE KEY STEP)
+# Passo 3: Verificar endpoints (O PASSO CHAVE)
 kubectl get endpoints web-service
-# ENDPOINTS: <none>  ← This is the problem!
+# ENDPOINTS: <none>  ← Este é o problema!
 
-# Step 4: Compare labels
+# Passo 4: Comparar labels
 kubectl get pods --show-labels | grep web-app
 # Labels: app=web-app,version=v2
 
 kubectl describe svc web-service | grep Selector
-# Selector: app=web-app-typo  ← Doesn't match!
+# Selector: app=web-app-typo  ← Não corresponde!
 
-# Step 5: Try to reach the service (will fail)
+# Passo 5: Tentar alcançar o service (vai falhar)
 kubectl run debug-curl --image=busybox:1.36 --rm -it --restart=Never -- wget -qO- --timeout=3 http://web-service 2>&1 || true
 # wget: download timed out
 ```
 
-**Apply the fix:**
+**Aplicar a correção:**
 
 ```bash
-# Fix: correct the selector
+# Correção: corrigir o selector
 kubectl patch svc web-service --type='json' -p='[
   {"op": "replace", "path": "/spec/selector", "value": {"app": "web-app"}}
 ]'
 ```
 
-**Verify resolution:**
+**Verificar resolução:**
 
 ```bash
-# Endpoints should now show pod IPs
+# Endpoints agora devem mostrar IPs dos pods
 kubectl get endpoints web-service
 # ENDPOINTS: 10.244.x.x:80,10.244.y.y:80
 
-# Test connectivity
+# Testar conectividade
 kubectl run debug-curl --image=busybox:1.36 --rm -it --restart=Never -- wget -qO- --timeout=3 http://web-service
-# Returns nginx welcome page HTML
+# Retorna HTML da página de boas-vindas do nginx
 ```
 
-**Clean up:**
+**Limpeza:**
 
 ```bash
 kubectl delete deployment web-app
@@ -565,9 +565,9 @@ kubectl delete svc web-service
 
 ---
 
-### Scenario 4: ImagePullBackOff
+### Cenário 4: ImagePullBackOff
 
-**Deploy the broken state:**
+**Implantar o estado quebrado:**
 
 ```bash
 cat <<'EOF' | kubectl apply -f -
@@ -595,43 +595,43 @@ spec:
 EOF
 ```
 
-The image tag `9.99.99-nonexistent` doesn't exist on Docker Hub.
+A tag de imagem `9.99.99-nonexistent` não existe no Docker Hub.
 
-**Diagnose step by step:**
+**Diagnosticar passo a passo:**
 
 ```bash
-# Step 1: Check pod status
+# Passo 1: Verificar status do pod
 kubectl get pods -l app=bad-image-app
-# STATUS: ErrImagePull or ImagePullBackOff
+# STATUS: ErrImagePull ou ImagePullBackOff
 
-# Step 2: Describe the pod
+# Passo 2: Descrever o pod
 kubectl describe pod -l app=bad-image-app | grep -A 10 "Events"
 # Events:
 #   Warning  Failed   ... Failed to pull image "nginx:9.99.99-nonexistent":
 #     rpc error: ... manifest unknown
 
-# Step 3: Verify the image exists (outside the cluster)
-# You would check Docker Hub or your registry to confirm valid tags
+# Passo 3: Verificar se a imagem existe (fora do cluster)
+# Você verificaria o Docker Hub ou seu registry para confirmar tags válidas
 ```
 
-**Apply the fix:**
+**Aplicar a correção:**
 
 ```bash
-# Fix: use a valid image tag
+# Correção: usar uma tag de imagem válida
 kubectl set image deployment/bad-image-app app=nginx:1.27
 ```
 
-**Verify resolution:**
+**Verificar resolução:**
 
 ```bash
 kubectl get pods -l app=bad-image-app -w
-# Wait for STATUS: Running
+# Aguarde STATUS: Running
 
 kubectl describe pod -l app=bad-image-app | grep "Image:"
 # Image: nginx:1.27
 ```
 
-**Clean up:**
+**Limpeza:**
 
 ```bash
 kubectl delete deployment bad-image-app
@@ -639,11 +639,11 @@ kubectl delete deployment bad-image-app
 
 ---
 
-### Scenario 5: Node NotReady
+### Cenário 5: Node NotReady
 
-In a Kind cluster, we can simulate a node issue by stopping the container running the worker node.
+Em um cluster Kind, podemos simular um problema de nó parando o container que roda o worker node.
 
-**Deploy workloads first:**
+**Implantar workloads primeiro:**
 
 ```bash
 cat <<'EOF' | kubectl apply -f -
@@ -670,63 +670,63 @@ spec:
         - containerPort: 80
 EOF
 
-# Wait for all pods to be running
+# Aguardar todos os pods estarem rodando
 kubectl wait --for=condition=Ready pod -l app=resilient-app --timeout=60s
 kubectl get pods -l app=resilient-app -o wide
 ```
 
-**Simulate the failure:**
+**Simular a falha:**
 
 ```bash
-# Get the worker node names
+# Obter os nomes dos worker nodes
 kubectl get nodes
 
-# Stop one worker node (Kind nodes are Docker containers)
+# Pausar um worker node (nós Kind são containers Docker)
 docker pause troubleshooting-lab-worker
 
-# Wait 40-60 seconds for the node to be marked NotReady
+# Aguardar 40-60 segundos para o nó ser marcado como NotReady
 sleep 60
 ```
 
-**Diagnose step by step:**
+**Diagnosticar passo a passo:**
 
 ```bash
-# Step 1: Check node status
+# Passo 1: Verificar status do nó
 kubectl get nodes
-# One node shows NotReady
+# Um nó mostra NotReady
 
-# Step 2: Describe the NotReady node
+# Passo 2: Descrever o nó NotReady
 kubectl describe node troubleshooting-lab-worker | grep -A 10 "Conditions"
-# Ready: False — Kubelet stopped posting status
+# Ready: False — Kubelet parou de reportar status
 
-# Step 3: Check pod distribution
+# Passo 3: Verificar distribuição dos pods
 kubectl get pods -l app=resilient-app -o wide
-# Pods on the NotReady node will eventually be rescheduled (after the
-# pod-eviction-timeout, typically 5 minutes)
+# Pods no nó NotReady eventualmente serão reagendados (após o
+# pod-eviction-timeout, tipicamente 5 minutos)
 ```
 
-**Apply the fix:**
+**Aplicar a correção:**
 
 ```bash
-# Fix: "repair" the node by unpausing it
+# Correção: "reparar" o nó despausando-o
 docker unpause troubleshooting-lab-worker
 
-# Wait for node to become Ready
+# Aguardar o nó ficar Ready
 kubectl wait --for=condition=Ready node/troubleshooting-lab-worker --timeout=120s
 kubectl get nodes
 ```
 
-**Verify resolution:**
+**Verificar resolução:**
 
 ```bash
 kubectl get nodes
-# All nodes show Ready
+# Todos os nós mostram Ready
 
 kubectl get pods -l app=resilient-app -o wide
-# All pods running and distributed across nodes
+# Todos os pods rodando e distribuídos entre os nós
 ```
 
-**Clean up:**
+**Limpeza:**
 
 ```bash
 kubectl delete deployment resilient-app
@@ -734,56 +734,56 @@ kubectl delete deployment resilient-app
 
 ---
 
-### The Debugging Toolkit — Summary
+### O Kit de Ferramentas de Debugging — Resumo
 
-When you're stuck, these are your go-to tools:
+Quando você estiver travado, estas são suas ferramentas essenciais:
 
 ```bash
-# Run a temporary debug pod with common networking tools
+# Executar um pod temporário de debug com ferramentas comuns de rede
 kubectl run debug --image=busybox:1.36 -it --rm --restart=Never -- /bin/sh
 
-# Attach an ephemeral container to a running pod
+# Anexar um container efêmero a um pod em execução
 kubectl debug <pod-name> -it --image=busybox:1.36 --target=<container-name>
 
-# Debug directly on a node
+# Debugar diretamente em um nó
 kubectl debug node/<node-name> -it --image=busybox:1.36
 
-# Get the full YAML of a pod (see computed fields, defaulted values)
+# Obter o YAML completo de um pod (ver campos computados, valores padrão)
 kubectl get pod <pod-name> -o yaml
 
-# Check resource usage (requires metrics-server)
+# Verificar uso de recursos (requer metrics-server)
 kubectl top pods
 kubectl top nodes
 ```
 
-### Lab Cleanup
+### Limpeza do Laboratório
 
 ```bash
-# Delete the Kind cluster
+# Deletar o cluster Kind
 kind delete cluster --name troubleshooting-lab
 ```
 
 ---
 
-## Key Takeaways
+## Principais Conclusões
 
-1. **Always start with `kubectl describe`.** The Events section at the bottom tells the chronological story of what happened to the pod. It's the single most informative debugging command.
+1. **Sempre comece com `kubectl describe`.** A seção Events no final conta a história cronológica do que aconteceu com o pod. É o comando de debugging mais informativo.
 
-2. **Use `kubectl logs -p` for crashed containers.** The current container might have no logs yet (it just restarted). The previous container has the crash output you need.
+2. **Use `kubectl logs -p` para containers que crasharam.** O container atual pode não ter logs ainda (acabou de reiniciar). O container anterior tem a saída do crash que você precisa.
 
-3. **Empty endpoints = selector mismatch.** When a Service can't reach pods, check `kubectl get endpoints <svc>`. If it's empty, the Service selector doesn't match any pod labels.
+3. **Endpoints vazios = incompatibilidade de selector.** Quando um Service não consegue alcançar pods, verifique `kubectl get endpoints <svc>`. Se estiver vazio, o selector do Service não corresponde a nenhum label de pod.
 
-4. **Pod status tells you where to look.** Pending = scheduling problem. ImagePullBackOff = image/registry problem. CrashLoopBackOff = application problem. OOMKilled = memory problem. Each status points to a different investigation path.
+4. **O status do pod indica onde investigar.** Pending = problema de agendamento. ImagePullBackOff = problema de imagem/registry. CrashLoopBackOff = problema da aplicação. OOMKilled = problema de memória. Cada status aponta para um caminho de investigação diferente.
 
-5. **Check RESTARTS, not just STATUS.** A pod showing "Running" with 100+ restarts is not healthy — it's CrashLoopBackOff that happens to be in the "running" phase of its crash loop when you looked.
+5. **Verifique RESTARTS, não apenas STATUS.** Um pod mostrando "Running" com 100+ restarts não está saudável — é um CrashLoopBackOff que por acaso está na fase "running" do seu ciclo de crash quando você olhou.
 
-6. **Events are timestamped and sorted.** Use `kubectl get events --sort-by=.metadata.creationTimestamp` for a timeline view. This reveals cascading failures — one event triggering another.
+6. **Events têm timestamp e são ordenáveis.** Use `kubectl get events --sort-by=.metadata.creationTimestamp` para uma visão de linha do tempo. Isso revela falhas em cascata — um evento desencadeando outro.
 
-7. **When in doubt, run a debug pod.** `kubectl run debug --image=busybox:1.36 -it --rm` gives you a shell inside the cluster network. From there you can `wget`, `nslookup`, and test connectivity that's invisible from outside.
+7. **Na dúvida, execute um pod de debug.** `kubectl run debug --image=busybox:1.36 -it --rm` dá a você um shell dentro da rede do cluster. De lá você pode usar `wget`, `nslookup`, e testar conectividade que é invisível de fora.
 
 ---
 
-## Further Reading
+## Leitura Adicional
 
 - [Troubleshooting Applications](https://kubernetes.io/docs/tasks/debug/debug-application/)
 - [Debug Pods](https://kubernetes.io/docs/tasks/debug/debug-application/debug-pods/)
@@ -795,5 +795,5 @@ kind delete cluster --name troubleshooting-lab
 
 ---
 
-**Previous:** [Chapter 12 — Scaling and Observability](12-scaling-and-observability.md)
-**Next:** [Chapter 14 — Production Operations](14-production-operations.md)
+**Anterior:** [Capítulo 12 — Scaling e Observabilidade](12-scaling-and-observability.md)
+**Próximo:** [Capítulo 14 — Operações em Produção](14-production-operations.md)

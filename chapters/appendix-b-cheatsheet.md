@@ -1,218 +1,218 @@
-# Appendix B: kubectl Cheatsheet
+# Apêndice B: Referência Rápida do kubectl
 
-*Essential commands and YAML patterns for daily Kubernetes work.*
+*Comandos essenciais e padrões YAML para o trabalho diário com Kubernetes.*
 
 ---
 
-## Setup and Configuration
+## Configuração Inicial
 
 ```bash
-# View and manage kubeconfig
-kubectl config view                                    # Show merged kubeconfig
-kubectl config get-contexts                            # List all contexts
-kubectl config current-context                         # Show active context
-kubectl config use-context <context-name>              # Switch to a different context
-kubectl config set-context --current --namespace=dev   # Set default namespace for current context
+# Visualizar e gerenciar kubeconfig
+kubectl config view                                    # Mostrar kubeconfig mesclado
+kubectl config get-contexts                            # Listar todos os contextos
+kubectl config current-context                         # Mostrar contexto ativo
+kubectl config use-context <context-name>              # Alternar para um contexto diferente
+kubectl config set-context --current --namespace=dev   # Definir namespace padrão para o contexto atual
 
-# Get cluster credentials (managed Kubernetes)
+# Obter credenciais do cluster (Kubernetes gerenciado)
 az aks get-credentials --resource-group myRG --name myCluster       # AKS
 aws eks update-kubeconfig --name myCluster --region us-west-2       # EKS
 gcloud container clusters get-credentials myCluster --region us-central1  # GKE
 
-# Enable shell autocompletion
-source <(kubectl completion bash)                      # Bash (current session)
-echo 'source <(kubectl completion bash)' >> ~/.bashrc  # Bash (permanent)
+# Habilitar autocompletar no shell
+source <(kubectl completion bash)                      # Bash (sessão atual)
+echo 'source <(kubectl completion bash)' >> ~/.bashrc  # Bash (permanente)
 source <(kubectl completion zsh)                       # Zsh
 ```
 
-## Getting Information
+## Obtendo Informações
 
 ```bash
-# Cluster overview
-kubectl cluster-info                                   # Control plane and CoreDNS endpoints
-kubectl get nodes -o wide                              # List nodes with IPs and OS info
-kubectl api-resources                                  # List all available resource types
-kubectl api-versions                                   # List supported API versions
-kubectl version --output=yaml                          # Client and server versions
+# Visão geral do cluster
+kubectl cluster-info                                   # Endpoints do control plane e CoreDNS
+kubectl get nodes -o wide                              # Listar nós com IPs e info do SO
+kubectl api-resources                                  # Listar todos os tipos de recursos disponíveis
+kubectl api-versions                                   # Listar versões de API suportadas
+kubectl version --output=yaml                          # Versões do cliente e servidor
 
-# List resources
-kubectl get pods                                       # Pods in current namespace
-kubectl get pods -A                                    # Pods in all namespaces
-kubectl get pods -o wide                               # Show node placement and IPs
-kubectl get all                                        # Common resources in current namespace
-kubectl get deploy,svc,ingress                         # Multiple resource types at once
+# Listar recursos
+kubectl get pods                                       # Pods no namespace atual
+kubectl get pods -A                                    # Pods em todos os namespaces
+kubectl get pods -o wide                               # Mostrar alocação em nós e IPs
+kubectl get all                                        # Recursos comuns no namespace atual
+kubectl get deploy,svc,ingress                         # Múltiplos tipos de recursos de uma vez
 
-# Detailed information
-kubectl describe pod <pod-name>                        # Detailed state, events, conditions
-kubectl describe node <node-name>                      # Node capacity, allocatable, conditions
+# Informações detalhadas
+kubectl describe pod <pod-name>                        # Estado detalhado, eventos, condições
+kubectl describe node <node-name>                      # Capacidade do nó, alocável, condições
 
-# Discover resource fields
-kubectl explain pod.spec.containers                    # Schema docs for any field
-kubectl explain pod.spec.containers.resources          # Drill deeper into nested fields
-kubectl explain pod --recursive | head -100            # Full field tree (truncated)
+# Descobrir campos de recursos
+kubectl explain pod.spec.containers                    # Documentação do schema para qualquer campo
+kubectl explain pod.spec.containers.resources          # Aprofundar em campos aninhados
+kubectl explain pod --recursive | head -100            # Árvore completa de campos (truncada)
 ```
 
-## Creating and Modifying Resources
+## Criando e Modificando Recursos
 
 ```bash
-# Declarative management (recommended)
-kubectl apply -f manifest.yaml                         # Create or update from file
-kubectl apply -f ./manifests/                          # Apply all files in a directory
-kubectl apply -f https://example.com/manifest.yaml     # Apply from URL
-kubectl apply -k ./overlays/production/                # Apply Kustomize overlay
+# Gerenciamento declarativo (recomendado)
+kubectl apply -f manifest.yaml                         # Criar ou atualizar a partir de arquivo
+kubectl apply -f ./manifests/                          # Aplicar todos os arquivos em um diretório
+kubectl apply -f https://example.com/manifest.yaml     # Aplicar a partir de URL
+kubectl apply -k ./overlays/production/                # Aplicar overlay Kustomize
 
-# Imperative creation (quick tasks, scripting)
-kubectl create namespace staging                       # Create a namespace
-kubectl create deployment nginx --image=nginx          # Create a deployment
-kubectl create service clusterip my-svc --tcp=80:8080  # Create a service
+# Criação imperativa (tarefas rápidas, scripts)
+kubectl create namespace staging                       # Criar um namespace
+kubectl create deployment nginx --image=nginx          # Criar um deployment
+kubectl create service clusterip my-svc --tcp=80:8080  # Criar um service
 
-# Editing live resources
-kubectl edit deployment/nginx                          # Opens in $EDITOR
-kubectl patch deployment nginx -p '{"spec":{"replicas":5}}'  # JSON patch
-kubectl replace -f updated-manifest.yaml               # Replace entire resource
+# Editando recursos ativos
+kubectl edit deployment/nginx                          # Abre no $EDITOR
+kubectl patch deployment nginx -p '{"spec":{"replicas":5}}'  # Patch JSON
+kubectl replace -f updated-manifest.yaml               # Substituir recurso inteiro
 
-# Deleting resources
-kubectl delete -f manifest.yaml                        # Delete from file
-kubectl delete pod my-pod                              # Delete by name
-kubectl delete pods -l app=old-version                 # Delete by label selector
-kubectl delete namespace staging                       # Delete namespace and all contents
+# Excluindo recursos
+kubectl delete -f manifest.yaml                        # Excluir a partir de arquivo
+kubectl delete pod my-pod                              # Excluir por nome
+kubectl delete pods -l app=old-version                 # Excluir por seletor de label
+kubectl delete namespace staging                       # Excluir namespace e todo seu conteúdo
 ```
 
-## Debugging and Troubleshooting
+## Depuração e Solução de Problemas
 
 ```bash
 # Logs
-kubectl logs <pod-name>                                # Stdout/stderr from container
-kubectl logs <pod-name> -c <container>                 # Specific container in multi-container Pod
-kubectl logs <pod-name> -f                             # Follow (stream) logs
-kubectl logs <pod-name> --previous                     # Logs from previous crashed container
-kubectl logs -l app=nginx --all-containers             # Logs from all Pods with label
-kubectl logs deploy/nginx                              # Logs from a Deployment's Pods
+kubectl logs <pod-name>                                # Stdout/stderr do container
+kubectl logs <pod-name> -c <container>                 # Container específico em Pod multi-container
+kubectl logs <pod-name> -f                             # Seguir (stream) logs
+kubectl logs <pod-name> --previous                     # Logs do container anterior que falhou
+kubectl logs -l app=nginx --all-containers             # Logs de todos os Pods com label
+kubectl logs deploy/nginx                              # Logs dos Pods de um Deployment
 
-# Interactive debugging
-kubectl exec -it <pod-name> -- /bin/sh                 # Shell into a running container
-kubectl exec <pod-name> -- cat /etc/resolv.conf        # Run a single command
-kubectl debug -it <pod-name> --image=busybox --target=<container>  # Ephemeral debug container
-kubectl debug node/<node-name> -it --image=ubuntu      # Debug at node level
+# Depuração interativa
+kubectl exec -it <pod-name> -- /bin/sh                 # Shell em um container em execução
+kubectl exec <pod-name> -- cat /etc/resolv.conf        # Executar um único comando
+kubectl debug -it <pod-name> --image=busybox --target=<container>  # Container efêmero de debug
+kubectl debug node/<node-name> -it --image=ubuntu      # Debug no nível do nó
 
 # Port forwarding
-kubectl port-forward pod/<pod-name> 8080:80            # Forward local port to Pod port
-kubectl port-forward svc/<svc-name> 8080:80            # Forward via Service
+kubectl port-forward pod/<pod-name> 8080:80            # Encaminhar porta local para porta do Pod
+kubectl port-forward svc/<svc-name> 8080:80            # Encaminhar via Service
 
-# Resource utilization (requires Metrics Server)
-kubectl top nodes                                      # CPU/memory per node
-kubectl top pods                                       # CPU/memory per Pod
-kubectl top pods --sort-by=memory                      # Sort by memory usage
+# Utilização de recursos (requer Metrics Server)
+kubectl top nodes                                      # CPU/memória por nó
+kubectl top pods                                       # CPU/memória por Pod
+kubectl top pods --sort-by=memory                      # Ordenar por uso de memória
 
-# Events
-kubectl get events --sort-by='.lastTimestamp'          # Recent cluster events
-kubectl get events --field-selector reason=FailedScheduling  # Filter by reason
-kubectl get events -w                                  # Watch events in real time
+# Eventos
+kubectl get events --sort-by='.lastTimestamp'          # Eventos recentes do cluster
+kubectl get events --field-selector reason=FailedScheduling  # Filtrar por motivo
+kubectl get events -w                                  # Observar eventos em tempo real
 
-# Connectivity testing
-kubectl run tmp-shell --rm -it --image=busybox -- /bin/sh              # Temporary debug Pod
-kubectl run tmp-curl --rm -it --image=curlimages/curl -- curl http://my-svc  # Test service
+# Teste de conectividade
+kubectl run tmp-shell --rm -it --image=busybox -- /bin/sh              # Pod temporário de debug
+kubectl run tmp-curl --rm -it --image=curlimages/curl -- curl http://my-svc  # Testar service
 ```
 
-## Working with Pods
+## Trabalhando com Pods
 
 ```bash
-# Run Pods
-kubectl run nginx --image=nginx                        # Run a single Pod
-kubectl run nginx --image=nginx --port=80              # With a declared port
-kubectl run busybox --rm -it --image=busybox -- sh     # Interactive one-shot Pod
+# Executar Pods
+kubectl run nginx --image=nginx                        # Executar um único Pod
+kubectl run nginx --image=nginx --port=80              # Com uma porta declarada
+kubectl run busybox --rm -it --image=busybox -- sh     # Pod interativo descartável
 
-# Copy files to/from Pods
-kubectl cp <pod-name>:/var/log/app.log ./app.log       # Copy from Pod to local
-kubectl cp ./config.yaml <pod-name>:/app/config.yaml   # Copy from local to Pod
+# Copiar arquivos de/para Pods
+kubectl cp <pod-name>:/var/log/app.log ./app.log       # Copiar do Pod para local
+kubectl cp ./config.yaml <pod-name>:/app/config.yaml   # Copiar do local para Pod
 
-# Attach to running process
-kubectl attach <pod-name> -it                          # Attach stdin/stdout to main process
+# Anexar ao processo em execução
+kubectl attach <pod-name> -it                          # Anexar stdin/stdout ao processo principal
 
-# Check Pod status details
-kubectl get pod <pod-name> -o yaml | grep -A5 status   # Raw status fields
-kubectl get pod <pod-name> -o jsonpath='{.status.phase}'  # Just the phase
+# Verificar detalhes do status do Pod
+kubectl get pod <pod-name> -o yaml | grep -A5 status   # Campos brutos de status
+kubectl get pod <pod-name> -o jsonpath='{.status.phase}'  # Apenas a fase
 ```
 
-## Deployments and Scaling
+## Deployments e Escalonamento
 
 ```bash
 # Rollouts
-kubectl rollout status deploy/nginx                    # Watch rollout progress
-kubectl rollout history deploy/nginx                   # View revision history
-kubectl rollout undo deploy/nginx                      # Roll back to previous revision
-kubectl rollout undo deploy/nginx --to-revision=2      # Roll back to specific revision
-kubectl rollout restart deploy/nginx                   # Trigger a rolling restart
-kubectl rollout pause deploy/nginx                     # Pause rollout (for batched changes)
-kubectl rollout resume deploy/nginx                    # Resume paused rollout
+kubectl rollout status deploy/nginx                    # Acompanhar progresso do rollout
+kubectl rollout history deploy/nginx                   # Ver histórico de revisões
+kubectl rollout undo deploy/nginx                      # Reverter para revisão anterior
+kubectl rollout undo deploy/nginx --to-revision=2      # Reverter para revisão específica
+kubectl rollout restart deploy/nginx                   # Disparar reinício progressivo
+kubectl rollout pause deploy/nginx                     # Pausar rollout (para mudanças em lote)
+kubectl rollout resume deploy/nginx                    # Retomar rollout pausado
 
-# Scaling
-kubectl scale deploy/nginx --replicas=5                # Scale to exact count
-kubectl autoscale deploy/nginx --min=2 --max=10 --cpu-percent=70  # Create HPA
-kubectl get hpa                                        # List Horizontal Pod Autoscalers
+# Escalonamento
+kubectl scale deploy/nginx --replicas=5                # Escalar para quantidade exata
+kubectl autoscale deploy/nginx --min=2 --max=10 --cpu-percent=70  # Criar HPA
+kubectl get hpa                                        # Listar Horizontal Pod Autoscalers
 
-# Update image (imperative — prefer `kubectl apply` for production)
-kubectl set image deploy/nginx nginx=nginx:1.27        # Update container image
+# Atualizar imagem (imperativo — prefira `kubectl apply` para produção)
+kubectl set image deploy/nginx nginx=nginx:1.27        # Atualizar imagem do container
 ```
 
-## Namespaces and Context
+## Namespaces e Contexto
 
 ```bash
-# Namespace management
-kubectl get namespaces                                 # List all namespaces
-kubectl create namespace production                    # Create namespace
-kubectl config set-context --current --namespace=production  # Switch default namespace
+# Gerenciamento de namespaces
+kubectl get namespaces                                 # Listar todos os namespaces
+kubectl create namespace production                    # Criar namespace
+kubectl config set-context --current --namespace=production  # Alterar namespace padrão
 
-# Working across namespaces
-kubectl get pods -n kube-system                        # List Pods in specific namespace
-kubectl get pods -A                                    # All namespaces
-kubectl get all -n monitoring                          # All resources in a namespace
+# Trabalhando entre namespaces
+kubectl get pods -n kube-system                        # Listar Pods em namespace específico
+kubectl get pods -A                                    # Todos os namespaces
+kubectl get all -n monitoring                          # Todos os recursos em um namespace
 
-# Context management for multi-cluster work
-kubectl config get-contexts                            # Show all contexts
-kubectl config rename-context old-name new-name        # Rename a context
-kubectl config delete-context old-context              # Remove a context
+# Gerenciamento de contexto para trabalho multi-cluster
+kubectl config get-contexts                            # Mostrar todos os contextos
+kubectl config rename-context old-name new-name        # Renomear um contexto
+kubectl config delete-context old-context              # Remover um contexto
 ```
 
-## Output and Filtering
+## Saída e Filtragem
 
 ```bash
-# Output formats
-kubectl get pods -o yaml                               # Full YAML output
-kubectl get pods -o json                               # Full JSON output
-kubectl get pods -o wide                               # Extra columns (IP, node)
-kubectl get pods -o name                               # Just resource names
+# Formatos de saída
+kubectl get pods -o yaml                               # Saída YAML completa
+kubectl get pods -o json                               # Saída JSON completa
+kubectl get pods -o wide                               # Colunas extras (IP, nó)
+kubectl get pods -o name                               # Apenas nomes dos recursos
 
-# JSONPath queries
-kubectl get pods -o jsonpath='{.items[*].metadata.name}'           # All Pod names
-kubectl get pods -o jsonpath='{.items[*].status.podIP}'            # All Pod IPs
-kubectl get nodes -o jsonpath='{.items[*].status.addresses[0].address}'  # Node IPs
-kubectl get pod <pod> -o jsonpath='{.spec.containers[*].image}'    # Container images
+# Consultas JSONPath
+kubectl get pods -o jsonpath='{.items[*].metadata.name}'           # Todos os nomes de Pods
+kubectl get pods -o jsonpath='{.items[*].status.podIP}'            # Todos os IPs de Pods
+kubectl get nodes -o jsonpath='{.items[*].status.addresses[0].address}'  # IPs dos nós
+kubectl get pod <pod> -o jsonpath='{.spec.containers[*].image}'    # Imagens dos containers
 
-# Custom columns
+# Colunas customizadas
 kubectl get pods -o custom-columns=NAME:.metadata.name,STATUS:.status.phase,IP:.status.podIP
 
-# Sorting
-kubectl get pods --sort-by='.metadata.creationTimestamp'  # Sort by creation time
-kubectl get pods --sort-by='.status.startTime'            # Sort by start time
-kubectl get pv --sort-by='.spec.capacity.storage'         # Sort PVs by size
+# Ordenação
+kubectl get pods --sort-by='.metadata.creationTimestamp'  # Ordenar por data de criação
+kubectl get pods --sort-by='.status.startTime'            # Ordenar por hora de início
+kubectl get pv --sort-by='.spec.capacity.storage'         # Ordenar PVs por tamanho
 
-# Label selectors
-kubectl get pods -l app=nginx                          # Exact label match
-kubectl get pods -l 'app in (nginx,apache)'            # Set-based selector
-kubectl get pods -l app=nginx,env=prod                 # Multiple labels (AND)
-kubectl get pods -l '!canary'                          # Label must not exist
+# Seletores de label
+kubectl get pods -l app=nginx                          # Correspondência exata de label
+kubectl get pods -l 'app in (nginx,apache)'            # Seletor baseado em conjunto
+kubectl get pods -l app=nginx,env=prod                 # Múltiplas labels (AND)
+kubectl get pods -l '!canary'                          # Label não deve existir
 
-# Field selectors
-kubectl get pods --field-selector=status.phase=Running                 # Running Pods only
-kubectl get pods --field-selector=spec.nodeName=worker-1               # Pods on specific node
-kubectl get events --field-selector=involvedObject.name=my-pod         # Events for a Pod
+# Seletores de campo
+kubectl get pods --field-selector=status.phase=Running                 # Apenas Pods em execução
+kubectl get pods --field-selector=spec.nodeName=worker-1               # Pods em nó específico
+kubectl get events --field-selector=involvedObject.name=my-pod         # Eventos de um Pod
 ```
 
-## Useful Aliases and Shortcuts
+## Aliases e Atalhos Úteis
 
 ```bash
-# Common aliases
+# Aliases comuns
 alias k='kubectl'
 alias kg='kubectl get'
 alias kd='kubectl describe'
@@ -221,25 +221,25 @@ alias kdel='kubectl delete'
 alias kl='kubectl logs'
 alias ke='kubectl exec -it'
 
-# Dry-run patterns for generating YAML (never memorize YAML from scratch)
+# Padrões dry-run para gerar YAML (nunca memorize YAML do zero)
 kubectl create deployment nginx --image=nginx --dry-run=client -o yaml > deploy.yaml
 kubectl create service clusterip my-svc --tcp=80:8080 --dry-run=client -o yaml
 kubectl create configmap my-config --from-literal=key=value --dry-run=client -o yaml
 kubectl create secret generic my-secret --from-literal=pass=s3cr3t --dry-run=client -o yaml
 kubectl create job my-job --image=busybox --dry-run=client -o yaml -- echo "hello"
 kubectl create cronjob my-cron --image=busybox --schedule="*/5 * * * *" --dry-run=client -o yaml -- echo "tick"
-kubectl run nginx --image=nginx --dry-run=client -o yaml                    # Pod YAML
+kubectl run nginx --image=nginx --dry-run=client -o yaml                    # YAML de Pod
 
-# Quick resource generation
+# Geração rápida de recursos
 kubectl create namespace staging --dry-run=client -o yaml | kubectl apply -f -
 
-# Useful one-liners
-kubectl get pods --no-headers | wc -l                  # Count Pods
+# One-liners úteis
+kubectl get pods --no-headers | wc -l                  # Contar Pods
 kubectl get pods -o jsonpath='{range .items[*]}{.metadata.name}{"\t"}{.status.phase}{"\n"}{end}'
 kubectl get nodes -o jsonpath='{range .items[*]}{.metadata.name}{"\t"}{.status.allocatable.cpu}{"\n"}{end}'
 ```
 
-## Essential YAML Patterns
+## Padrões YAML Essenciais
 
 ### Pod
 
@@ -444,4 +444,4 @@ spec:
 
 ---
 
-*Navigation: [← Appendix A: Glossary](appendix-a-glossary.md) | [Appendix C: Cloud Platform Comparison →](appendix-c-cloud-platforms.md)*
+*Navegação: [← Apêndice A: Glossário](appendix-a-glossary.md) | [Apêndice C: Comparação de Plataformas Cloud →](appendix-c-cloud-platforms.md)*

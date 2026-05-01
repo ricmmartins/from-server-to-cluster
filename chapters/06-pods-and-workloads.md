@@ -1,38 +1,38 @@
-# Chapter 6: Pods and Workloads
+# Capítulo 6: Pods e Workloads
 
-*"A single process is fragile. A system that manages processes — that's infrastructure."*
-
----
-
-## From Processes to Pods
-
-On a Linux server, everything comes down to processes. You start them, monitor them, restart them when they crash, and schedule them to run at specific times. You've got `systemd` for long-running services, `cron` for scheduled tasks, and `at` for one-off jobs. The whole system is a carefully orchestrated collection of processes.
-
-Kubernetes has the same needs — but at a much larger scale. Instead of managing processes on one machine, you're managing workloads across a cluster. And just like Linux has different tools for different kinds of process management (`systemd` for daemons, `cron` for schedules, `systemctl` for service health), Kubernetes has different resource types for different kinds of workloads.
-
-This chapter is the taxonomy of those workload resources. Think of it as the "systemd deep dive" chapter — once you understand how each workload controller works, you'll know which one to reach for in every situation.
+*"Um único processo é frágil. Um sistema que gerencia processos — isso é infraestrutura."*
 
 ---
 
-## Pods: The Atomic Unit
+## De Processos a Pods
 
-A **Pod** is the smallest deployable unit in Kubernetes. It's not a container — it's a wrapper around one or more containers that share networking and storage.
+Em um servidor Linux, tudo se resume a processos. Você os inicia, monitora, reinicia quando travam e os agenda para rodar em horários específicos. Você tem `systemd` para serviços de longa duração, `cron` para tarefas agendadas e `at` para trabalhos únicos. Todo o sistema é uma coleção cuidadosamente orquestrada de processos.
 
-If Linux processes are atoms, a Pod is a molecule: one or more tightly coupled processes (containers) that need to live and die together.
+O Kubernetes tem as mesmas necessidades — mas em uma escala muito maior. Em vez de gerenciar processos em uma máquina, você está gerenciando workloads através de um cluster. E assim como o Linux tem ferramentas diferentes para diferentes tipos de gerenciamento de processos (`systemd` para daemons, `cron` para agendamentos, `systemctl` para saúde de serviços), o Kubernetes tem diferentes tipos de recursos para diferentes tipos de workloads.
 
-### Why Not Just Run Containers?
+Este capítulo é a taxonomia desses recursos de workload. Pense nele como o capítulo "deep dive no systemd" — uma vez que você entenda como cada controller de workload funciona, saberá qual usar em cada situação.
 
-You might wonder: if Docker already runs containers, why do we need Pods?
+---
 
-Because some workloads need multiple processes that share resources:
+## Pods: A Unidade Atômica
 
-- **Shared network namespace** — All containers in a Pod share the same IP address and port space. They communicate over `localhost`, just like processes on the same Linux machine.
-- **Shared storage volumes** — Containers in a Pod can mount the same volumes, enabling them to share files without network overhead.
-- **Co-scheduling** — All containers in a Pod are guaranteed to run on the same node. No split-brain scenarios.
+Um **Pod** é a menor unidade implantável no Kubernetes. Não é um container — é um invólucro em torno de um ou mais containers que compartilham rede e armazenamento.
 
-### Single-Container Pods (The Common Case)
+Se processos Linux são átomos, um Pod é uma molécula: um ou mais processos fortemente acoplados (containers) que precisam viver e morrer juntos.
 
-Most Pods run a single container. This is the standard pattern for web servers, APIs, workers, and most microservices:
+### Por Que Não Executar Apenas Containers?
+
+Você pode se perguntar: se o Docker já executa containers, por que precisamos de Pods?
+
+Porque alguns workloads precisam de múltiplos processos que compartilham recursos:
+
+- **Namespace de rede compartilhado** — Todos os containers em um Pod compartilham o mesmo endereço IP e espaço de portas. Eles se comunicam via `localhost`, assim como processos na mesma máquina Linux.
+- **Volumes de armazenamento compartilhados** — Containers em um Pod podem montar os mesmos volumes, permitindo compartilhar arquivos sem overhead de rede.
+- **Co-scheduling** — Todos os containers em um Pod têm garantia de rodar no mesmo node. Sem cenários de split-brain.
+
+### Pods de Container Único (O Caso Comum)
+
+A maioria dos Pods roda um único container. Este é o padrão standard para servidores web, APIs, workers e a maioria dos microsserviços:
 
 ```yaml
 apiVersion: v1
@@ -49,13 +49,13 @@ spec:
     - containerPort: 80
 ```
 
-### Multi-Container Pods
+### Pods Multi-Container
 
-When you need tightly coupled processes, multi-container Pods make sense. The most common patterns:
+Quando você precisa de processos fortemente acoplados, Pods multi-container fazem sentido. Os padrões mais comuns:
 
-**Sidecar containers** — A helper that runs alongside the main application. Examples: log shippers, service mesh proxies, TLS termination. Native sidecar containers (using `initContainers` with `restartPolicy: Always`) were introduced as alpha in v1.28, beta in v1.29, and graduated to stable (GA) in v1.31. They ensure the sidecar starts before and stops after the main container.
+**Sidecar containers** — Um auxiliar que roda ao lado da aplicação principal. Exemplos: enviadores de log, proxies de service mesh, terminação TLS. Sidecar containers nativos (usando `initContainers` com `restartPolicy: Always`) foram introduzidos como alpha na v1.28, beta na v1.29 e graduaram para estável (GA) na v1.31. Eles garantem que o sidecar inicie antes e pare depois do container principal.
 
-**Init containers** — Run to completion *before* the main containers start. Used for setup tasks: waiting for a database to be ready, populating a shared volume, running migrations.
+**Init containers** — Executam até a conclusão *antes* que os containers principais iniciem. Usados para tarefas de setup: esperar que um banco de dados esteja pronto, popular um volume compartilhado, executar migrações.
 
 ```yaml
 apiVersion: v1
@@ -74,41 +74,41 @@ spec:
     - containerPort: 80
 ```
 
-### Pod Lifecycle
+### Ciclo de Vida do Pod
 
-A Pod goes through several phases:
+Um Pod passa por várias fases:
 
-| Phase | Description |
+| Fase | Descrição |
 |-------|-------------|
-| `Pending` | Accepted by the cluster, but containers not yet running (image pulling, scheduling) |
-| `Running` | At least one container is running |
-| `Succeeded` | All containers terminated successfully (exit code 0) |
-| `Failed` | At least one container terminated with an error |
-| `Unknown` | Pod state cannot be determined (usually a node communication issue) |
+| `Pending` | Aceito pelo cluster, mas containers ainda não rodando (baixando imagem, scheduling) |
+| `Running` | Pelo menos um container está rodando |
+| `Succeeded` | Todos os containers terminaram com sucesso (código de saída 0) |
+| `Failed` | Pelo menos um container terminou com erro |
+| `Unknown` | Estado do Pod não pode ser determinado (geralmente um problema de comunicação com o node) |
 
 ---
 
-## Deployments and ReplicaSets
+## Deployments e ReplicaSets
 
-You almost never create Pods directly in production. Instead, you use **Deployments**, which manage Pods through **ReplicaSets**.
+Você quase nunca cria Pods diretamente em produção. Em vez disso, usa **Deployments**, que gerenciam Pods através de **ReplicaSets**.
 
-Think of it as a hierarchy:
+Pense nisso como uma hierarquia:
 
 ```
-Deployment → manages → ReplicaSet → manages → Pods
+Deployment → gerencia → ReplicaSet → gerencia → Pods
 ```
 
-### ReplicaSets: Ensuring N Replicas
+### ReplicaSets: Garantindo N Réplicas
 
-A ReplicaSet's job is simple: make sure exactly N copies of a Pod are running at all times. If a Pod dies, the ReplicaSet creates a new one. If there are too many, it kills the extras.
+O trabalho de um ReplicaSet é simples: garantir que exatamente N cópias de um Pod estejam rodando o tempo todo. Se um Pod morre, o ReplicaSet cria um novo. Se há muitos, ele elimina os extras.
 
-This is the Kubernetes equivalent of `Restart=always` in systemd — but instead of restarting one process, it maintains a fleet.
+Este é o equivalente Kubernetes do `Restart=always` no systemd — mas em vez de reiniciar um processo, ele mantém uma frota.
 
-You rarely create ReplicaSets directly. Deployments create and manage them for you.
+Você raramente cria ReplicaSets diretamente. Deployments os criam e gerenciam para você.
 
-### Deployments: Rolling Updates on Top of ReplicaSets
+### Deployments: Rolling Updates em Cima de ReplicaSets
 
-A **Deployment** adds update management on top of ReplicaSets. When you change the Pod template (new image, new config), the Deployment creates a *new* ReplicaSet and gradually shifts traffic from the old one to the new one.
+Um **Deployment** adiciona gerenciamento de atualizações em cima de ReplicaSets. Quando você muda o template do Pod (nova imagem, nova configuração), o Deployment cria um *novo* ReplicaSet e gradualmente transfere o tráfego do antigo para o novo.
 
 ```yaml
 apiVersion: apps/v1
@@ -132,24 +132,24 @@ spec:
         - containerPort: 80
 ```
 
-Key fields:
-- **`replicas: 3`** — Maintain 3 Pods at all times
-- **`selector.matchLabels`** — How the Deployment finds its Pods (must match the Pod template labels)
-- **`template`** — The Pod specification used for every replica
+Campos-chave:
+- **`replicas: 3`** — Manter 3 Pods o tempo todo
+- **`selector.matchLabels`** — Como o Deployment encontra seus Pods (deve corresponder aos labels do template de Pod)
+- **`template`** — A especificação de Pod usada para cada réplica
 
 ---
 
-## DaemonSets: One Pod Per Node
+## DaemonSets: Um Pod Por Node
 
-A **DaemonSet** ensures that every node (or a subset of nodes) runs exactly one copy of a Pod. When a new node joins the cluster, the DaemonSet automatically schedules a Pod on it. When a node is removed, the Pod is garbage collected.
+Um **DaemonSet** garante que todo node (ou um subconjunto de nodes) rode exatamente uma cópia de um Pod. Quando um novo node entra no cluster, o DaemonSet automaticamente agenda um Pod nele. Quando um node é removido, o Pod é coletado pelo garbage collector.
 
-This is the Kubernetes equivalent of a system daemon — something like `syslog`, `node_exporter`, or `filebeat` that you install on every server.
+Este é o equivalente Kubernetes de um daemon de sistema — algo como `syslog`, `node_exporter`, ou `filebeat` que você instala em todo servidor.
 
-Common use cases:
-- **Log collection** — Fluentd or Filebeat on every node
-- **Monitoring** — Prometheus node exporter on every node
-- **Storage** — CSI node plugins
-- **Networking** — CNI plugins, kube-proxy itself runs as a DaemonSet
+Casos de uso comuns:
+- **Coleta de logs** — Fluentd ou Filebeat em todo node
+- **Monitoramento** — Prometheus node exporter em todo node
+- **Armazenamento** — Plugins CSI de node
+- **Rede** — Plugins CNI, o próprio kube-proxy roda como DaemonSet
 
 ```yaml
 apiVersion: apps/v1
@@ -183,20 +183,20 @@ spec:
 
 ---
 
-## StatefulSets: Stable Identity for Stateful Workloads
+## StatefulSets: Identidade Estável para Workloads Stateful
 
-Some workloads can't be treated as interchangeable cattle. Databases, distributed systems (ZooKeeper, Kafka, etcd), and any application that needs **stable identity** requires a **StatefulSet**.
+Alguns workloads não podem ser tratados como gado intercambiável. Bancos de dados, sistemas distribuídos (ZooKeeper, Kafka, etcd) e qualquer aplicação que precisa de **identidade estável** requer um **StatefulSet**.
 
-StatefulSets provide guarantees that Deployments don't:
+StatefulSets fornecem garantias que Deployments não oferecem:
 
-| Guarantee | What It Means |
+| Garantia | O Que Significa |
 |-----------|---------------|
-| **Stable hostname** | Pods get predictable names: `web-0`, `web-1`, `web-2` (not random suffixes) |
-| **Stable persistent storage** | Each Pod gets its own PersistentVolumeClaim that persists across rescheduling |
-| **Ordered deployment** | Pods are created in order (0, 1, 2) and terminated in reverse order (2, 1, 0) |
-| **Ordered rolling updates** | Updates proceed one Pod at a time, in reverse ordinal order |
+| **Hostname estável** | Pods recebem nomes previsíveis: `web-0`, `web-1`, `web-2` (não sufixos aleatórios) |
+| **Armazenamento persistente estável** | Cada Pod recebe seu próprio PersistentVolumeClaim que persiste entre reschedulings |
+| **Deploy ordenado** | Pods são criados em ordem (0, 1, 2) e terminados em ordem reversa (2, 1, 0) |
+| **Rolling updates ordenados** | Atualizações prosseguem um Pod por vez, em ordem ordinal reversa |
 
-Think of this like named database servers on Linux: you don't have "some database server" — you have `db-primary`, `db-replica-1`, `db-replica-2`, each with its own data directory on a dedicated disk.
+Pense nisso como servidores de banco de dados nomeados no Linux: você não tem "algum servidor de banco de dados" — você tem `db-primary`, `db-replica-1`, `db-replica-2`, cada um com seu próprio diretório de dados em um disco dedicado.
 
 ```yaml
 apiVersion: apps/v1
@@ -232,19 +232,19 @@ spec:
           storage: 1Gi
 ```
 
-The `volumeClaimTemplates` field is unique to StatefulSets — it creates a separate PersistentVolumeClaim for each Pod (`data-db-0`, `data-db-1`, `data-db-2`). Even if a Pod is deleted and recreated, it reattaches to the same volume.
+O campo `volumeClaimTemplates` é exclusivo de StatefulSets — ele cria um PersistentVolumeClaim separado para cada Pod (`data-db-0`, `data-db-1`, `data-db-2`). Mesmo se um Pod for deletado e recriado, ele se reconecta ao mesmo volume.
 
 ---
 
-## Jobs and CronJobs: Run-to-Completion Workloads
+## Jobs e CronJobs: Workloads de Execução até Conclusão
 
-Not every workload runs forever. Sometimes you need to run a task once, or on a schedule.
+Nem todo workload roda eternamente. Às vezes você precisa executar uma tarefa uma vez, ou em um agendamento.
 
-### Jobs: One-Time Execution
+### Jobs: Execução Única
 
-A **Job** creates one or more Pods and ensures they run to successful completion. If a Pod fails, the Job controller creates a new one (up to a configurable `backoffLimit`).
+Um **Job** cria um ou mais Pods e garante que eles rodem até conclusão bem-sucedida. Se um Pod falha, o Job controller cria um novo (até um `backoffLimit` configurável).
 
-This is the Kubernetes equivalent of the `at` command — run something once and report success or failure.
+Este é o equivalente Kubernetes do comando `at` — executar algo uma vez e reportar sucesso ou falha.
 
 ```yaml
 apiVersion: batch/v1
@@ -262,14 +262,14 @@ spec:
   backoffLimit: 4
 ```
 
-Key points:
-- **`restartPolicy: Never`** or **`OnFailure`** — Jobs can't use `Always` (that's what Deployments are for)
-- **`backoffLimit`** — Maximum retries before marking the Job as failed
-- **Parallelism** — Jobs can run multiple Pods in parallel with `spec.parallelism` and `spec.completions`
+Pontos-chave:
+- **`restartPolicy: Never`** ou **`OnFailure`** — Jobs não podem usar `Always` (para isso servem Deployments)
+- **`backoffLimit`** — Máximo de tentativas antes de marcar o Job como falho
+- **Paralelismo** — Jobs podem rodar múltiplos Pods em paralelo com `spec.parallelism` e `spec.completions`
 
-### CronJobs: Scheduled Execution
+### CronJobs: Execução Agendada
 
-A **CronJob** creates Jobs on a repeating schedule, using the same cron syntax you already know from Linux:
+Um **CronJob** cria Jobs em um agendamento recorrente, usando a mesma sintaxe cron que você já conhece do Linux:
 
 ```yaml
 apiVersion: batch/v1
@@ -292,30 +292,30 @@ spec:
           restartPolicy: OnFailure
 ```
 
-The `schedule` field uses standard cron format: `minute hour day-of-month month day-of-week`. The example above runs every minute.
+O campo `schedule` usa o formato cron padrão: `minuto hora dia-do-mês mês dia-da-semana`. O exemplo acima roda a cada minuto.
 
 ---
 
-## Probes: Health Checks for Containers
+## Probes: Health Checks para Containers
 
-On Linux, systemd can check if a service is healthy using `ExecStartPre`, watchdog timers, or custom health check scripts. Kubernetes has a more granular system with three types of probes:
+No Linux, o systemd pode verificar se um serviço está saudável usando `ExecStartPre`, temporizadores watchdog ou scripts de health check personalizados. O Kubernetes tem um sistema mais granular com três tipos de probes:
 
-| Probe | Purpose | What Happens on Failure |
+| Probe | Propósito | O Que Acontece em Caso de Falha |
 |-------|---------|------------------------|
-| **Liveness** | Is the container alive? | Container is **restarted** |
-| **Readiness** | Is the container ready to serve traffic? | Pod is **removed from Service endpoints** (no traffic) |
-| **Startup** | Has the container finished starting? | Liveness/readiness probes are **paused** until startup succeeds |
+| **Liveness** | O container está vivo? | Container é **reiniciado** |
+| **Readiness** | O container está pronto para servir tráfego? | Pod é **removido dos endpoints do Service** (sem tráfego) |
+| **Startup** | O container terminou de iniciar? | Probes de liveness/readiness são **pausados** até o startup ter sucesso |
 
-### Probe Mechanisms
+### Mecanismos de Probe
 
-Each probe can use one of four mechanisms:
+Cada probe pode usar um de quatro mecanismos:
 
-- **`httpGet`** — Makes an HTTP GET request. Success = 200-399 response code
-- **`tcpSocket`** — Opens a TCP connection. Success = port is open
-- **`exec`** — Runs a command inside the container. Success = exit code 0
-- **`grpc`** — Performs a gRPC health check (Kubernetes v1.27+, stable)
+- **`httpGet`** — Faz uma requisição HTTP GET. Sucesso = código de resposta 200-399
+- **`tcpSocket`** — Abre uma conexão TCP. Sucesso = porta está aberta
+- **`exec`** — Executa um comando dentro do container. Sucesso = código de saída 0
+- **`grpc`** — Executa um health check gRPC (Kubernetes v1.27+, estável)
 
-### Example: HTTP Probes
+### Exemplo: HTTP Probes
 
 ```yaml
 apiVersion: v1
@@ -349,17 +349,17 @@ spec:
       periodSeconds: 2
 ```
 
-Key timing parameters:
-- **`initialDelaySeconds`** — Wait before first probe
-- **`periodSeconds`** — How often to probe
-- **`failureThreshold`** — How many consecutive failures before taking action
-- **`successThreshold`** — How many consecutive successes to be considered healthy (default 1; for readiness probes, can be set higher)
+Parâmetros-chave de temporização:
+- **`initialDelaySeconds`** — Esperar antes do primeiro probe
+- **`periodSeconds`** — Com que frequência executar o probe
+- **`failureThreshold`** — Quantas falhas consecutivas antes de tomar ação
+- **`successThreshold`** — Quantos sucessos consecutivos para ser considerado saudável (padrão 1; para probes de readiness, pode ser definido mais alto)
 
 ---
 
-## Rolling Updates and Rollbacks
+## Rolling Updates e Rollbacks
 
-Deployments support **zero-downtime updates** through rolling updates. When you change the Pod template (new image, new env var, new config), the Deployment creates a new ReplicaSet and gradually shifts Pods:
+Deployments suportam **atualizações sem downtime** através de rolling updates. Quando você muda o template do Pod (nova imagem, nova variável de ambiente, nova configuração), o Deployment cria um novo ReplicaSet e gradualmente transfere os Pods:
 
 ```
 Old ReplicaSet (3 pods) ──────→ New ReplicaSet (3 pods)
@@ -367,9 +367,9 @@ Old ReplicaSet (3 pods) ──────→ New ReplicaSet (3 pods)
    3 → 2 → 1 → 0                  0 → 1 → 2 → 3
 ```
 
-### Controlling the Rollout
+### Controlando o Rollout
 
-Two key parameters in the Deployment's `strategy` section:
+Dois parâmetros-chave na seção `strategy` do Deployment:
 
 ```yaml
 spec:
@@ -380,21 +380,21 @@ spec:
       maxUnavailable: 0
 ```
 
-- **`maxSurge`** — How many extra Pods can exist above the desired count during an update (absolute number or percentage). `maxSurge: 1` means you can temporarily have 4 Pods when `replicas: 3`.
-- **`maxUnavailable`** — How many Pods can be unavailable during the update. `maxUnavailable: 0` means all 3 Pods must always be running — the safest option, but the slowest rollout.
+- **`maxSurge`** — Quantos Pods extras podem existir acima da contagem desejada durante uma atualização (número absoluto ou porcentagem). `maxSurge: 1` significa que você pode temporariamente ter 4 Pods quando `replicas: 3`.
+- **`maxUnavailable`** — Quantos Pods podem estar indisponíveis durante a atualização. `maxUnavailable: 0` significa que todos os 3 Pods devem estar sempre rodando — a opção mais segura, mas o rollout mais lento.
 
 ### Rollback
 
-Every time you update a Deployment, Kubernetes keeps the old ReplicaSet around (scaled to 0). This is your rollback history. You can undo an update instantly:
+Toda vez que você atualiza um Deployment, o Kubernetes mantém o ReplicaSet antigo (escalado para 0). Este é o seu histórico de rollback. Você pode desfazer uma atualização instantaneamente:
 
 ```bash
-# Undo the last update
+# Desfazer a última atualização
 kubectl rollout undo deployment/nginx
 
-# Undo to a specific revision
+# Desfazer para uma revisão específica
 kubectl rollout undo deployment/nginx --to-revision=2
 
-# Check rollout history
+# Verificar histórico de rollout
 kubectl rollout history deployment/nginx
 ```
 
@@ -402,9 +402,9 @@ kubectl rollout history deployment/nginx
 
 ## Pod Disruption Budgets (PDB)
 
-Rolling updates are voluntary disruptions — you chose to do them. But disruptions also happen during node drains (for maintenance or upgrades), cluster autoscaling, and other administrative operations.
+Rolling updates são disrupções voluntárias — você escolheu fazê-las. Mas disrupções também acontecem durante drains de node (para manutenção ou upgrades), autoscaling de cluster e outras operações administrativas.
 
-A **PodDisruptionBudget** tells Kubernetes: "During voluntary disruptions, never let fewer than N Pods be available."
+Um **PodDisruptionBudget** diz ao Kubernetes: "Durante disrupções voluntárias, nunca deixe menos que N Pods disponíveis."
 
 ```yaml
 apiVersion: policy/v1
@@ -418,49 +418,49 @@ spec:
       app: nginx
 ```
 
-With this PDB and 3 replicas, Kubernetes will only drain one Pod at a time from the nginx Deployment. If draining a node would violate the budget, the drain operation blocks until it's safe.
+Com este PDB e 3 réplicas, o Kubernetes só fará drain de um Pod por vez do Deployment nginx. Se drenar um node violaria o budget, a operação de drain bloqueia até ser seguro.
 
-You can specify either:
-- **`minAvailable`** — Minimum Pods that must remain running (absolute number or percentage)
-- **`maxUnavailable`** — Maximum Pods that can be down at once (absolute number or percentage)
+Você pode especificar:
+- **`minAvailable`** — Mínimo de Pods que devem continuar rodando (número absoluto ou porcentagem)
+- **`maxUnavailable`** — Máximo de Pods que podem estar fora de uma vez (número absoluto ou porcentagem)
 
 ---
 
-## Linux ↔ Kubernetes Comparison
+## Comparação Linux ↔ Kubernetes
 
-| Linux Concept | K8s Workload | Use Case |
+| Conceito Linux | Workload K8s | Caso de Uso |
 |---|---|---|
-| Process / process group | Pod | Atomic execution unit — one or more containers sharing network and storage |
-| systemd service (`Restart=always`) | Deployment | Long-running, scalable applications with rolling updates |
-| System daemon (`/usr/lib/systemd/system/`) | DaemonSet | Per-node agents (monitoring, logging, networking) |
-| Named services (`db-primary`, `db-replica`) | StatefulSet | Databases, distributed systems needing stable identity |
-| cron job (`crontab -e`) | CronJob | Scheduled batch tasks |
-| `at` command | Job | One-time batch execution |
-| systemd health checks (`ExecStartPre`, watchdog) | Probes | Liveness, readiness, and startup detection |
+| Processo / grupo de processos | Pod | Unidade de execução atômica — um ou mais containers compartilhando rede e armazenamento |
+| Serviço systemd (`Restart=always`) | Deployment | Aplicações de longa duração, escaláveis com rolling updates |
+| Daemon de sistema (`/usr/lib/systemd/system/`) | DaemonSet | Agentes por node (monitoramento, logging, rede) |
+| Serviços nomeados (`db-primary`, `db-replica`) | StatefulSet | Bancos de dados, sistemas distribuídos que precisam de identidade estável |
+| cron job (`crontab -e`) | CronJob | Tarefas batch agendadas |
+| Comando `at` | Job | Execução batch única |
+| Health checks do systemd (`ExecStartPre`, watchdog) | Probes | Detecção de liveness, readiness e startup |
 
 ---
 
-> ### ⚠️ Where the Linux Analogy Breaks
+> ### ⚠️ Onde a Analogia com Linux Quebra
 >
-> **Pods are ephemeral — truly ephemeral.** On Linux, a process keeps its PID and memory until it's killed or the machine reboots. A Kubernetes Pod can be destroyed and recreated at any time — on a different node, with a different IP, with a fresh filesystem. Pods are cattle, not pets. Never store state inside a Pod and expect it to survive.
+> **Pods são efêmeros — verdadeiramente efêmeros.** No Linux, um processo mantém seu PID e memória até ser encerrado ou a máquina reiniciar. Um Pod Kubernetes pode ser destruído e recriado a qualquer momento — em um node diferente, com um IP diferente, com um sistema de arquivos limpo. Pods são gado, não animais de estimação. Nunca armazene estado dentro de um Pod e espere que ele sobreviva.
 >
-> **A Deployment rollback doesn't "downgrade" anything.** On Linux, `yum downgrade nginx` replaces the binary in-place. In Kubernetes, `kubectl rollout undo` creates entirely new Pods running the old image. The old Pods are gone forever — there's no in-place downgrade. It's more like "deploy the previous version" than "undo the update."
+> **Um rollback de Deployment não "faz downgrade" de nada.** No Linux, `yum downgrade nginx` substitui o binário in-place. No Kubernetes, `kubectl rollout undo` cria Pods inteiramente novos rodando a imagem antiga. Os Pods antigos se foram para sempre — não existe downgrade in-place. É mais como "fazer deploy da versão anterior" do que "desfazer a atualização."
 >
-> **StatefulSets give stable hostnames, NOT stable IPs.** A Pod named `db-0` will always be reachable at `db-0.db-headless.default.svc.cluster.local` — but its IP address changes every time it's rescheduled. The stable identity is DNS, not network address. This is deliberate: DNS-based discovery is more resilient than hardcoded IPs.
+> **StatefulSets dão hostnames estáveis, NÃO IPs estáveis.** Um Pod chamado `db-0` sempre será acessível em `db-0.db-headless.default.svc.cluster.local` — mas seu endereço IP muda toda vez que é reagendado. A identidade estável é DNS, não endereço de rede. Isso é deliberado: descoberta baseada em DNS é mais resiliente do que IPs hardcoded.
 
 ---
 
-## Diagnostic Lab: Working with Workloads
+## Laboratório Diagnóstico: Trabalhando com Workloads
 
-### Prerequisites
+### Pré-requisitos
 
-Make sure your Kind cluster from Chapter 5 is running:
+Certifique-se de que seu cluster Kind do Capítulo 5 está rodando:
 
 ```bash
 kind get clusters
 ```
 
-If not, create one:
+Se não, crie um:
 
 ```bash
 kind create cluster --name lab-cluster --config - <<EOF
@@ -475,9 +475,9 @@ EOF
 
 ---
 
-### Lab 1: Create a Pod Manually
+### Lab 1: Crie um Pod Manualmente
 
-**Step 1 — Create a Pod YAML file:**
+**Passo 1 — Crie um arquivo YAML de Pod:**
 
 ```bash
 cat <<'EOF' > pod.yaml
@@ -496,7 +496,7 @@ spec:
 EOF
 ```
 
-**Step 2 — Apply and inspect:**
+**Passo 2 — Aplique e inspecione:**
 
 ```bash
 kubectl apply -f pod.yaml
@@ -506,28 +506,28 @@ kubectl apply -f pod.yaml
 kubectl get pods
 ```
 
-Expected output:
+Saída esperada:
 
 ```
 NAME    READY   STATUS    RESTARTS   AGE
 nginx   1/1     Running   0          10s
 ```
 
-**Step 3 — Describe the Pod to see events and details:**
+**Passo 3 — Descreva o Pod para ver eventos e detalhes:**
 
 ```bash
 kubectl describe pod nginx
 ```
 
-Look for the `Events` section at the bottom — you'll see the scheduler assigning the Pod to a node, the kubelet pulling the image, and the container starting.
+Procure a seção `Events` no final — você verá o scheduler atribuindo o Pod a um node, o kubelet baixando a imagem e o container iniciando.
 
-**Step 4 — Exec into the Pod:**
+**Passo 4 — Exec no Pod:**
 
 ```bash
 kubectl exec -it nginx -- /bin/sh
 ```
 
-Inside the container, try:
+Dentro do container, tente:
 
 ```bash
 hostname
@@ -536,7 +536,7 @@ curl localhost:80
 exit
 ```
 
-**Step 5 — Clean up:**
+**Passo 5 — Limpeza:**
 
 ```bash
 kubectl delete pod nginx
@@ -544,9 +544,9 @@ kubectl delete pod nginx
 
 ---
 
-### Lab 2: Deployments with Rolling Updates
+### Lab 2: Deployments com Rolling Updates
 
-**Step 1 — Create a Deployment with nginx:1.26:**
+**Passo 1 — Crie um Deployment com nginx:1.26:**
 
 ```bash
 cat <<'EOF' > deployment.yaml
@@ -580,21 +580,21 @@ kubectl apply -f deployment.yaml
 kubectl get pods -l app=nginx
 ```
 
-You should see 3 Pods running.
+Você deve ver 3 Pods rodando.
 
-**Step 2 — Update the image to trigger a rolling update:**
+**Passo 2 — Atualize a imagem para acionar um rolling update:**
 
 ```bash
 kubectl set image deployment/nginx nginx=nginx:1.27
 ```
 
-**Step 3 — Watch the rollout:**
+**Passo 3 — Observe o rollout:**
 
 ```bash
 kubectl rollout status deployment/nginx
 ```
 
-Expected output:
+Saída esperada:
 
 ```
 Waiting for deployment "nginx" rollout to finish: 1 out of 3 new replicas have been updated...
@@ -602,27 +602,27 @@ Waiting for deployment "nginx" rollout to finish: 2 out of 3 new replicas have b
 deployment "nginx" successfully rolled out
 ```
 
-**Step 4 — Check rollout history:**
+**Passo 4 — Verifique o histórico de rollout:**
 
 ```bash
 kubectl rollout history deployment/nginx
 ```
 
-**Step 5 — Rollback to the previous version:**
+**Passo 5 — Faça rollback para a versão anterior:**
 
 ```bash
 kubectl rollout undo deployment/nginx
 ```
 
-Verify the rollback:
+Verifique o rollback:
 
 ```bash
 kubectl describe deployment nginx | grep Image
 ```
 
-You should see `nginx:1.26` again.
+Você deve ver `nginx:1.26` novamente.
 
-**Step 6 — Clean up:**
+**Passo 6 — Limpeza:**
 
 ```bash
 kubectl delete deployment nginx
@@ -630,9 +630,9 @@ kubectl delete deployment nginx
 
 ---
 
-### Lab 3: DaemonSet — One Pod Per Node
+### Lab 3: DaemonSet — Um Pod Por Node
 
-**Step 1 — Create a DaemonSet:**
+**Passo 1 — Crie um DaemonSet:**
 
 ```bash
 cat <<'EOF' > daemonset.yaml
@@ -664,13 +664,13 @@ EOF
 kubectl apply -f daemonset.yaml
 ```
 
-**Step 2 — Verify one Pod per node:**
+**Passo 2 — Verifique um Pod por node:**
 
 ```bash
 kubectl get pods -l app=log-collector -o wide
 ```
 
-You should see one Pod on each node (including the control plane, since we added a toleration for it):
+Você deve ver um Pod em cada node (incluindo o control plane, já que adicionamos uma toleration para ele):
 
 ```
 NAME                  READY   STATUS    RESTARTS   AGE   IP           NODE
@@ -679,13 +679,13 @@ log-collector-def34   1/1     Running   0          10s   10.244.1.3   lab-cluste
 log-collector-ghi56   1/1     Running   0          10s   10.244.2.4   lab-cluster-worker2
 ```
 
-**Step 3 — Check logs from one of the Pods:**
+**Passo 3 — Verifique logs de um dos Pods:**
 
 ```bash
 kubectl logs -l app=log-collector --tail=5
 ```
 
-**Step 4 — Clean up:**
+**Passo 4 — Limpeza:**
 
 ```bash
 kubectl delete daemonset log-collector
@@ -693,9 +693,9 @@ kubectl delete daemonset log-collector
 
 ---
 
-### Lab 4: Job and CronJob
+### Lab 4: Job e CronJob
 
-**Step 1 — Create a Job:**
+**Passo 1 — Crie um Job:**
 
 ```bash
 cat <<'EOF' > job.yaml
@@ -719,20 +719,20 @@ EOF
 kubectl apply -f job.yaml
 ```
 
-**Step 2 — Watch the Job complete:**
+**Passo 2 — Observe o Job completar:**
 
 ```bash
 kubectl get jobs
 ```
 
-Expected output:
+Saída esperada:
 
 ```
 NAME        COMPLETIONS   DURATION   AGE
 hello-job   1/1           3s         10s
 ```
 
-Check the output:
+Verifique a saída:
 
 ```bash
 kubectl logs job/hello-job
@@ -742,7 +742,7 @@ kubectl logs job/hello-job
 Hello from Job
 ```
 
-**Step 3 — Create a CronJob:**
+**Passo 3 — Crie um CronJob:**
 
 ```bash
 cat <<'EOF' > cronjob.yaml
@@ -771,20 +771,20 @@ EOF
 kubectl apply -f cronjob.yaml
 ```
 
-**Step 4 — Wait about 60-90 seconds, then check:**
+**Passo 4 — Espere cerca de 60-90 segundos, depois verifique:**
 
 ```bash
 kubectl get cronjobs
 kubectl get jobs --watch
 ```
 
-You should see a new Job created every minute. Check the output of the latest Job:
+Você deve ver um novo Job criado a cada minuto. Verifique a saída do Job mais recente:
 
 ```bash
 kubectl logs job/$(kubectl get jobs --sort-by=.metadata.creationTimestamp -o jsonpath='{.items[-1].metadata.name}')
 ```
 
-**Step 5 — Clean up:**
+**Passo 5 — Limpeza:**
 
 ```bash
 kubectl delete cronjob hello-cron
@@ -793,11 +793,11 @@ kubectl delete job hello-job
 
 ---
 
-### Lab 5: Probes in Action
+### Lab 5: Probes em Ação
 
-**Step 1 — Create a Pod with a liveness probe that will fail:**
+**Passo 1 — Crie um Pod com um liveness probe que vai falhar:**
 
-This Pod creates a `/tmp/healthy` file on start, then removes it after 30 seconds — simulating an application that becomes unhealthy:
+Este Pod cria um arquivo `/tmp/healthy` ao iniciar, depois o remove após 30 segundos — simulando uma aplicação que se torna não saudável:
 
 ```bash
 cat <<'EOF' > probe-test.yaml
@@ -830,15 +830,15 @@ EOF
 kubectl apply -f probe-test.yaml
 ```
 
-**Step 2 — Watch the Pod:**
+**Passo 2 — Observe o Pod:**
 
 ```bash
 kubectl get pod liveness-test --watch
 ```
 
-For the first ~30 seconds, the Pod is healthy. After the file is removed, the liveness probe fails. After 3 consecutive failures (15 seconds), the kubelet restarts the container.
+Nos primeiros ~30 segundos, o Pod está saudável. Depois que o arquivo é removido, o liveness probe falha. Após 3 falhas consecutivas (15 segundos), o kubelet reinicia o container.
 
-You'll see `RESTARTS` increment:
+Você verá `RESTARTS` incrementar:
 
 ```
 NAME            READY   STATUS    RESTARTS   AGE
@@ -846,22 +846,22 @@ liveness-test   1/1     Running   0          30s
 liveness-test   1/1     Running   1 (2s ago) 52s
 ```
 
-Press `Ctrl+C` to stop watching.
+Pressione `Ctrl+C` para parar de observar.
 
-**Step 3 — Inspect the events:**
+**Passo 3 — Inspecione os eventos:**
 
 ```bash
 kubectl describe pod liveness-test
 ```
 
-In the Events section, you'll see:
+Na seção Events, você verá:
 
 ```
 Warning  Unhealthy  ...  Liveness probe failed: cat: can't open '/tmp/healthy': No such file or directory
 Normal   Killing    ...  Container liveness failed liveness probe, will be restarted
 ```
 
-**Step 4 — Create a Deployment with readiness probes:**
+**Passo 4 — Crie um Deployment com readiness probes:**
 
 ```bash
 cat <<'EOF' > readiness-deploy.yaml
@@ -907,16 +907,16 @@ kubectl apply -f readiness-deploy.yaml
 kubectl get pods -l app=nginx-probed
 ```
 
-Both Pods should show `1/1 READY` — meaning the readiness probe is passing and they're receiving traffic.
+Ambos os Pods devem mostrar `1/1 READY` — significando que o readiness probe está passando e eles estão recebendo tráfego.
 
-**Step 5 — Clean up:**
+**Passo 5 — Limpeza:**
 
 ```bash
 kubectl delete pod liveness-test
 kubectl delete deployment nginx-probed
 ```
 
-Clean up lab YAML files:
+Limpe os arquivos YAML do lab:
 
 ```bash
 rm -f pod.yaml deployment.yaml daemonset.yaml job.yaml cronjob.yaml probe-test.yaml readiness-deploy.yaml
@@ -924,25 +924,25 @@ rm -f pod.yaml deployment.yaml daemonset.yaml job.yaml cronjob.yaml probe-test.y
 
 ---
 
-## Key Takeaways
+## Pontos-Chave
 
-1. **A Pod is one or more containers sharing network and storage — it's the atomic unit of Kubernetes.** Most Pods run a single container, but multi-container patterns (sidecar, init) exist for tightly coupled processes.
+1. **Um Pod é um ou mais containers compartilhando rede e armazenamento — é a unidade atômica do Kubernetes.** A maioria dos Pods roda um único container, mas padrões multi-container (sidecar, init) existem para processos fortemente acoplados.
 
-2. **Never create bare Pods in production.** Always use a controller (Deployment, DaemonSet, StatefulSet, Job) that manages Pod lifecycle — bare Pods won't be rescheduled if a node fails.
+2. **Nunca crie bare Pods em produção.** Sempre use um controller (Deployment, DaemonSet, StatefulSet, Job) que gerencia o ciclo de vida do Pod — bare Pods não serão reagendados se um node falhar.
 
-3. **Deployments are your default choice for stateless workloads.** They handle replication, rolling updates, and rollbacks. Under the hood, they manage ReplicaSets.
+3. **Deployments são sua escolha padrão para workloads stateless.** Eles lidam com replicação, rolling updates e rollbacks. Por baixo dos panos, eles gerenciam ReplicaSets.
 
-4. **DaemonSets run one Pod per node — perfect for infrastructure agents.** Log collectors, monitoring agents, and node-level plugins belong here.
+4. **DaemonSets rodam um Pod por node — perfeito para agentes de infraestrutura.** Coletores de log, agentes de monitoramento e plugins de nível de node pertencem aqui.
 
-5. **StatefulSets are for workloads that need stable identity.** Predictable hostnames (`pod-0`, `pod-1`), dedicated persistent storage, and ordered startup/shutdown. Use them for databases and distributed systems.
+5. **StatefulSets são para workloads que precisam de identidade estável.** Hostnames previsíveis (`pod-0`, `pod-1`), armazenamento persistente dedicado e startup/shutdown ordenados. Use-os para bancos de dados e sistemas distribuídos.
 
-6. **Probes are your three-layer health check system.** Liveness restarts broken containers. Readiness controls traffic flow. Startup gives slow applications time to initialize. Configure them for every production workload.
+6. **Probes são seu sistema de health check em três camadas.** Liveness reinicia containers quebrados. Readiness controla fluxo de tráfego. Startup dá tempo para aplicações lentas inicializarem. Configure-os para todo workload em produção.
 
-7. **Pod Disruption Budgets protect your applications during planned maintenance.** Without a PDB, a `kubectl drain` can take down all your replicas simultaneously.
+7. **Pod Disruption Budgets protegem suas aplicações durante manutenção planejada.** Sem um PDB, um `kubectl drain` pode derrubar todas as suas réplicas simultaneamente.
 
 ---
 
-## Further Reading
+## Leitura Adicional
 
 - [Pods](https://kubernetes.io/docs/concepts/workloads/pods/)
 - [Init Containers](https://kubernetes.io/docs/concepts/workloads/pods/init-containers/)
@@ -957,5 +957,5 @@ rm -f pod.yaml deployment.yaml daemonset.yaml job.yaml cronjob.yaml probe-test.y
 
 ---
 
-**Previous:** [Chapter 5 — Your First Cluster](05-your-first-cluster.md)
-**Next:** [Chapter 7 — Networking](07-networking.md)
+**Anterior:** [Capítulo 5 — Seu Primeiro Cluster](05-your-first-cluster.md)
+**Próximo:** [Capítulo 7 — Networking](07-networking.md)

@@ -1,26 +1,26 @@
-# Chapter 5: Your First Cluster
+# Capítulo 5: Seu Primeiro Cluster
 
-*"The best way to learn a new system is to break things in it on purpose."*
-
----
-
-## From Theory to Terminal
-
-You've spent four chapters building a mental model — what containers are, how Kubernetes is architected, and how it thinks in terms of desired state and reconciliation. Now it's time to get your hands dirty.
-
-This chapter is your "get comfortable" chapter. If the previous chapters were studying the map, this is the hike. We'll build a multi-node Kind cluster, learn to speak fluent kubectl, and explore every corner of a running cluster the way a Linux admin explores a new server — poking at processes, checking logs, looking at network connections, and testing what happens when things break.
-
-On a Linux server, the first thing you probably do after SSH'ing in is run `w`, `top`, `df -h`, and maybe `systemctl list-units`. We're going to do the Kubernetes equivalent of all that, and by the end of this chapter, `kubectl` should feel as natural as `systemctl`.
+*"A melhor maneira de aprender um novo sistema é quebrá-lo de propósito."*
 
 ---
 
-## Kind in Depth
+## Da Teoria ao Terminal
 
-In Chapter 1, you created a single-node Kind cluster. That was fine for a "hello world," but real Kubernetes clusters have multiple nodes — a control plane and one or more workers. Kind lets you simulate this on your laptop.
+Você passou quatro capítulos construindo um modelo mental — o que são containers, como o Kubernetes é arquitetado, e como ele pensa em termos de desired state e reconciliação. Agora é hora de colocar a mão na massa.
 
-### Multi-Node Cluster Configuration
+Este capítulo é o seu capítulo "fique confortável". Se os capítulos anteriores foram estudar o mapa, este é a trilha. Vamos construir um cluster Kind multi-node, aprender a falar kubectl fluentemente, e explorar cada canto de um cluster em execução da mesma forma que um admin Linux explora um novo servidor — cutucando processos, verificando logs, olhando conexões de rede e testando o que acontece quando as coisas quebram.
 
-Kind uses a YAML configuration file to define your cluster topology:
+Em um servidor Linux, a primeira coisa que você provavelmente faz depois de conectar via SSH é executar `w`, `top`, `df -h`, e talvez `systemctl list-units`. Vamos fazer o equivalente Kubernetes de tudo isso, e ao final deste capítulo, `kubectl` deve parecer tão natural quanto `systemctl`.
+
+---
+
+## Kind em Profundidade
+
+No Capítulo 1, você criou um cluster Kind de node único. Isso era suficiente para um "hello world", mas clusters Kubernetes reais têm múltiplos nodes — um control plane e um ou mais workers. Kind permite simular isso no seu laptop.
+
+### Configuração de Cluster Multi-Node
+
+Kind usa um arquivo de configuração YAML para definir a topologia do seu cluster:
 
 ```yaml
 kind: Cluster
@@ -31,17 +31,17 @@ nodes:
 - role: worker
 ```
 
-This gives you a 3-node cluster: one control plane and two workers. Each "node" is actually a Docker container running a full Kubernetes node (kubelet, kube-proxy, container runtime).
+Isso lhe dá um cluster de 3 nodes: um control plane e dois workers. Cada "node" é na verdade um container Docker rodando um node Kubernetes completo (kubelet, kube-proxy, container runtime).
 
-Save this as `kind-config.yaml` and create the cluster:
+Salve isso como `kind-config.yaml` e crie o cluster:
 
 ```bash
 kind create cluster --name first-cluster --config kind-config.yaml
 ```
 
-### Port Mappings
+### Mapeamento de Portas
 
-If you want to access Services from your host machine (say, to hit an nginx server in the cluster from your browser), you need to map ports from the Docker container to your host:
+Se você quer acessar Services a partir da sua máquina host (digamos, para acessar um servidor nginx no cluster pelo seu navegador), você precisa mapear portas do container Docker para o seu host:
 
 ```yaml
 kind: Cluster
@@ -56,39 +56,39 @@ nodes:
 - role: worker
 ```
 
-This maps port 30080 inside the cluster (commonly used with NodePort Services) to port 8080 on your local machine. We'll use this in later chapters.
+Isso mapeia a porta 30080 dentro do cluster (comumente usada com Services NodePort) para a porta 8080 na sua máquina local. Usaremos isso em capítulos posteriores.
 
-### What Kind Creates Under the Hood
+### O Que o Kind Cria Por Baixo dos Panos
 
-After creating the cluster, peek at what Docker is actually running:
+Após criar o cluster, espie o que o Docker está realmente executando:
 
 ```bash
 docker ps --format "table {{.Names}}\t{{.Image}}\t{{.Status}}"
 ```
 
-You'll see three containers — these are your "nodes." Each one runs a full kubelet, kube-proxy, and containerd runtime. The control plane node additionally runs etcd, kube-apiserver, kube-scheduler, and kube-controller-manager.
+Você verá três containers — estes são seus "nodes." Cada um executa um kubelet completo, kube-proxy e runtime containerd. O node do control plane adicionalmente executa etcd, kube-apiserver, kube-scheduler e kube-controller-manager.
 
 ---
 
-## Kubeconfig Explained
+## Kubeconfig Explicado
 
-When you created the Kind cluster, it configured kubectl to talk to it. But *how*? The answer is the kubeconfig file, which lives at `~/.kube/config` by default.
+Quando você criou o cluster Kind, ele configurou o kubectl para se comunicar com ele. Mas *como*? A resposta é o arquivo kubeconfig, que fica em `~/.kube/config` por padrão.
 
-### The SSH Config Analogy
+### A Analogia com SSH Config
 
-If you've ever used `~/.ssh/config`, kubeconfig will feel familiar:
+Se você já usou `~/.ssh/config`, kubeconfig vai parecer familiar:
 
-| SSH Config Concept | Kubeconfig Equivalent |
+| Conceito SSH Config | Equivalente Kubeconfig |
 |--------------------|----------------------|
-| Host entry | Cluster entry |
-| Hostname + Port | Server URL |
-| IdentityFile (private key) | Client certificate / token |
-| User | User entry |
-| A full Host block | Context (cluster + user + namespace) |
+| Entrada Host | Entrada Cluster |
+| Hostname + Porta | URL do Server |
+| IdentityFile (chave privada) | Certificado de cliente / token |
+| User | Entrada User |
+| Um bloco Host completo | Context (cluster + user + namespace) |
 
-### Kubeconfig Structure
+### Estrutura do Kubeconfig
 
-A kubeconfig file has three main sections:
+Um arquivo kubeconfig tem três seções principais:
 
 ```yaml
 apiVersion: v1
@@ -111,107 +111,107 @@ contexts:
 current-context: kind-first-cluster
 ```
 
-- **Clusters** — where to connect (server URL + CA cert to trust)
-- **Users** — how to authenticate (certs, tokens, or auth plugins)
-- **Contexts** — a shorthand that binds a cluster + user + optional default namespace
+- **Clusters** — onde conectar (URL do server + certificado CA a confiar)
+- **Users** — como autenticar (certificados, tokens ou plugins de auth)
+- **Contexts** — um atalho que vincula cluster + user + namespace padrão opcional
 
-### Working with Contexts
+### Trabalhando com Contexts
 
-If you manage multiple clusters (dev, staging, production — or multiple Kind clusters for testing), contexts let you switch between them:
+Se você gerencia múltiplos clusters (dev, staging, production — ou múltiplos clusters Kind para testes), contexts permitem alternar entre eles:
 
 ```bash
-# See all available contexts
+# Ver todos os contexts disponíveis
 kubectl config get-contexts
 
-# See which context is currently active
+# Ver qual context está ativo atualmente
 kubectl config current-context
 
-# Switch to a different context
+# Mudar para um context diferente
 kubectl config use-context kind-first-cluster
 
-# View the full kubeconfig (redacting sensitive data)
+# Visualizar o kubeconfig completo (ocultando dados sensíveis)
 kubectl config view
 ```
 
-This is exactly like SSH aliases. Instead of typing `ssh -i ~/.ssh/prod-key -p 2222 admin@10.0.1.5`, you define a Host block and just type `ssh prod`. Instead of passing certificates and URLs to kubectl, you define a context and just type `kubectl --context prod get pods`.
+Isso é exatamente como aliases SSH. Em vez de digitar `ssh -i ~/.ssh/prod-key -p 2222 admin@10.0.1.5`, você define um bloco Host e simplesmente digita `ssh prod`. Em vez de passar certificados e URLs para o kubectl, você define um context e simplesmente digita `kubectl --context prod get pods`.
 
 ---
 
-## kubectl: Your New CLI
+## kubectl: Sua Nova CLI
 
-`kubectl` is the Swiss army knife for Kubernetes — your `systemctl`, `journalctl`, `ssh`, `top`, and `ss` all rolled into one.
+`kubectl` é o canivete suíço do Kubernetes — seu `systemctl`, `journalctl`, `ssh`, `top` e `ss` tudo em um.
 
-### The Verb-Resource Pattern
+### O Padrão Verbo-Recurso
 
-Almost every kubectl command follows this pattern:
+Quase todo comando kubectl segue este padrão:
 
 ```
-kubectl <verb> <resource-type> [name] [flags]
+kubectl <verbo> <tipo-recurso> [nome] [flags]
 ```
 
-The most common verbs:
+Os verbos mais comuns:
 
-| Verb | What It Does | Linux Equivalent |
+| Verbo | O Que Faz | Equivalente Linux |
 |------|-------------|------------------|
-| `get` | List resources | `ls`, `systemctl list-units` |
-| `describe` | Show detailed info about a resource | `systemctl status`, `ip addr show` |
-| `apply` | Create or update from a file (declarative) | `ansible-playbook site.yml` |
-| `create` | Create a resource (imperative) | `systemctl start`, `useradd` |
-| `delete` | Remove a resource | `systemctl stop`, `rm` |
-| `exec` | Run a command inside a container | `ssh`, `nsenter` |
-| `logs` | View container output | `journalctl -u service` |
-| `port-forward` | Forward a local port to a Pod/Service | `ssh -L` tunnel |
-| `edit` | Open a resource in your editor | `systemctl edit` |
-| `scale` | Change replica count | — (no direct equivalent) |
-| `top` | Show resource usage | `top`, `htop` |
+| `get` | Listar recursos | `ls`, `systemctl list-units` |
+| `describe` | Mostrar informações detalhadas sobre um recurso | `systemctl status`, `ip addr show` |
+| `apply` | Criar ou atualizar a partir de um arquivo (declarativo) | `ansible-playbook site.yml` |
+| `create` | Criar um recurso (imperativo) | `systemctl start`, `useradd` |
+| `delete` | Remover um recurso | `systemctl stop`, `rm` |
+| `exec` | Executar um comando dentro de um container | `ssh`, `nsenter` |
+| `logs` | Visualizar saída do container | `journalctl -u service` |
+| `port-forward` | Encaminhar uma porta local para um Pod/Service | Túnel `ssh -L` |
+| `edit` | Abrir um recurso no seu editor | `systemctl edit` |
+| `scale` | Alterar a contagem de réplicas | — (sem equivalente direto) |
+| `top` | Mostrar uso de recursos | `top`, `htop` |
 
-### Common Resource Types
+### Tipos de Recursos Comuns
 
-| Resource | Short Name | What It Is |
+| Recurso | Nome Curto | O Que É |
 |----------|-----------|------------|
-| `pods` | `po` | The smallest deployable unit (one or more containers) |
-| `deployments` | `deploy` | Manages ReplicaSets and rolling updates |
-| `services` | `svc` | Stable network endpoint for a set of Pods |
-| `configmaps` | `cm` | Configuration data as key-value pairs |
-| `secrets` | — | Sensitive data (base64-encoded, not encrypted by default) |
-| `namespaces` | `ns` | Logical cluster partitions |
-| `nodes` | `no` | The machines (physical or virtual) in the cluster |
-| `replicasets` | `rs` | Ensures a specified number of pod replicas |
-| `events` | `ev` | Cluster events (scheduling, errors, warnings) |
+| `pods` | `po` | A menor unidade implantável (um ou mais containers) |
+| `deployments` | `deploy` | Gerencia ReplicaSets e rolling updates |
+| `services` | `svc` | Endpoint de rede estável para um conjunto de Pods |
+| `configmaps` | `cm` | Dados de configuração como pares chave-valor |
+| `secrets` | — | Dados sensíveis (codificados em base64, não criptografados por padrão) |
+| `namespaces` | `ns` | Partições lógicas do cluster |
+| `nodes` | `no` | As máquinas (físicas ou virtuais) no cluster |
+| `replicasets` | `rs` | Garante um número especificado de réplicas de pod |
+| `events` | `ev` | Eventos do cluster (scheduling, erros, avisos) |
 
-Short names save typing: `kubectl get po` is the same as `kubectl get pods`.
+Nomes curtos economizam digitação: `kubectl get po` é o mesmo que `kubectl get pods`.
 
-### Output Formats
+### Formatos de Saída
 
-kubectl can output in multiple formats — this is incredibly powerful for scripting and debugging:
+kubectl pode gerar saída em múltiplos formatos — isso é incrivelmente poderoso para scripts e debugging:
 
 ```bash
-# Default table view
+# Visualização em tabela padrão
 kubectl get pods
 
-# Wide view — more columns (node name, IP, etc.)
+# Visualização ampla — mais colunas (nome do node, IP, etc.)
 kubectl get pods -o wide
 
-# Full YAML — the complete object as stored in etcd
+# YAML completo — o objeto completo como armazenado no etcd
 kubectl get pod <name> -o yaml
 
-# Full JSON
+# JSON completo
 kubectl get pod <name> -o json
 
-# JSONPath — extract specific fields
+# JSONPath — extrair campos específicos
 kubectl get pods -o jsonpath='{.items[*].metadata.name}'
 
-# Custom columns — build your own table
+# Colunas personalizadas — construa sua própria tabela
 kubectl get pods -o custom-columns='NAME:.metadata.name,NODE:.spec.nodeName,STATUS:.status.phase'
 
-# Sort by a field
+# Ordenar por um campo
 kubectl get pods --sort-by=.status.startTime
 
-# Get just the names (useful for scripting)
+# Obter apenas os nomes (útil para scripts)
 kubectl get pods -o name
 ```
 
-The `-o yaml` output is particularly valuable. When you need to create a YAML manifest for something you built imperatively, just export it:
+A saída `-o yaml` é particularmente valiosa. Quando você precisa criar um manifesto YAML para algo que construiu imperativamente, basta exportá-lo:
 
 ```bash
 kubectl get deployment nginx -o yaml > nginx-deployment.yaml
@@ -219,107 +219,107 @@ kubectl get deployment nginx -o yaml > nginx-deployment.yaml
 
 ---
 
-## Imperative vs. Declarative
+## Imperativo vs. Declarativo
 
-There are two ways to work with Kubernetes: imperative and declarative. Understanding both — and knowing when to use each — is essential.
+Existem duas formas de trabalhar com Kubernetes: imperativa e declarativa. Entender ambas — e saber quando usar cada uma — é essencial.
 
-### Imperative: Run Commands Directly
+### Imperativo: Executar Comandos Diretamente
 
 ```bash
-# Create a deployment
+# Criar um deployment
 kubectl create deployment nginx --image=nginx:1.27 --replicas=3
 
-# Expose it as a service
+# Expô-lo como um service
 kubectl expose deployment nginx --port=80 --type=NodePort
 
-# Scale it
+# Escalá-lo
 kubectl scale deployment nginx --replicas=5
 
-# Delete it
+# Deletá-lo
 kubectl delete deployment nginx
 ```
 
-This feels natural to Linux admins — it's like running `systemctl start`, `useradd`, or `iptables -A`. You tell the system what to do, step by step.
+Isso parece natural para admins Linux — é como executar `systemctl start`, `useradd`, ou `iptables -A`. Você diz ao sistema o que fazer, passo a passo.
 
-**Good for:** Quick experiments, debugging, one-off tasks during labs.
+**Bom para:** Experimentos rápidos, debugging, tarefas únicas durante laboratórios.
 
-### Declarative: Apply YAML Manifests
+### Declarativo: Aplicar Manifestos YAML
 
 ```bash
-# Apply a manifest (creates or updates)
+# Aplicar um manifesto (cria ou atualiza)
 kubectl apply -f nginx-deployment.yaml
 
-# Apply all manifests in a directory
+# Aplicar todos os manifestos em um diretório
 kubectl apply -f ./manifests/
 
-# Delete everything defined in a manifest
+# Deletar tudo definido em um manifesto
 kubectl delete -f nginx-deployment.yaml
 ```
 
-This is the Kubernetes-native way. You define the desired state in a file, store it in version control, and `apply` it. If you change the file and apply again, Kubernetes figures out the diff and makes the minimal changes needed.
+Esta é a forma nativa do Kubernetes. Você define o desired state em um arquivo, armazena no controle de versão, e o `apply`. Se você mudar o arquivo e aplicar novamente, o Kubernetes descobre o diff e faz as mudanças mínimas necessárias.
 
-**Good for:** Production, anything you want to reproduce, team collaboration, GitOps.
+**Bom para:** Produção, qualquer coisa que você queira reproduzir, colaboração em equipe, GitOps.
 
-### Dry-Run and Diff
+### Dry-Run e Diff
 
-Before applying changes to a live cluster, you can preview them:
+Antes de aplicar mudanças a um cluster ativo, você pode pré-visualizá-las:
 
 ```bash
-# Dry-run: show what WOULD be sent to the server (without actually sending it)
+# Dry-run: mostrar o que SERIA enviado ao servidor (sem realmente enviar)
 kubectl apply -f nginx-deployment.yaml --dry-run=client -o yaml
 
-# Server-side dry-run: validate against the API server without persisting
+# Dry-run do lado do servidor: validar contra o API server sem persistir
 kubectl apply -f nginx-deployment.yaml --dry-run=server
 
-# Diff: compare a local manifest against what's running in the cluster
+# Diff: comparar um manifesto local com o que está rodando no cluster
 kubectl diff -f nginx-deployment.yaml
 ```
 
-The `--dry-run=client` flag is also great for *generating* YAML manifests:
+A flag `--dry-run=client` também é ótima para *gerar* manifestos YAML:
 
 ```bash
-# Generate a Deployment YAML without creating it
+# Gerar um YAML de Deployment sem criá-lo
 kubectl create deployment nginx --image=nginx:1.27 --replicas=3 --dry-run=client -o yaml > nginx-deployment.yaml
 ```
 
-This is a common workflow: create imperatively with dry-run to get the YAML template, then customize it and apply declaratively.
+Este é um fluxo de trabalho comum: criar imperativamente com dry-run para obter o template YAML, depois personalizá-lo e aplicar declarativamente.
 
 ---
 
-## Linux ↔ K8s Comparison Table
+## Tabela Comparativa Linux ↔ K8s
 
-| Linux Task | kubectl Equivalent | Notes |
+| Tarefa Linux | Equivalente kubectl | Notas |
 |------------|-------------------|-------|
-| `ssh user@server` | `kubectl exec -it <pod> -- /bin/sh` | Not a persistent session — Pod may be replaced anytime |
-| `systemctl status nginx` | `kubectl get pods -l app=nginx` | Shows status of all Pods matching the label |
-| `journalctl -u nginx -f` | `kubectl logs -f deployment/nginx` | Follows stdout/stderr from the container |
-| `scp file server:/path` | `kubectl cp file <pod>:/path` | Copies between local filesystem and container |
-| `ss -tlnp` | `kubectl get svc` | Lists Services and their port mappings |
-| `cat /etc/systemd/system/nginx.service` | `kubectl get deployment nginx -o yaml` | Shows the full desired-state spec |
-| `top` | `kubectl top pods` | Requires Metrics Server (installed in lab below) |
-| `systemctl restart nginx` | `kubectl rollout restart deployment/nginx` | Triggers a rolling restart of all Pods |
-| `systemctl list-units` | `kubectl get all` | Lists common resource types in a namespace |
-| `hostnamectl` | `kubectl get nodes -o wide` | Shows node names, IPs, OS, and kernel version |
+| `ssh user@server` | `kubectl exec -it <pod> -- /bin/sh` | Não é uma sessão persistente — Pod pode ser substituído a qualquer momento |
+| `systemctl status nginx` | `kubectl get pods -l app=nginx` | Mostra o status de todos os Pods que correspondem ao label |
+| `journalctl -u nginx -f` | `kubectl logs -f deployment/nginx` | Segue stdout/stderr do container |
+| `scp file server:/path` | `kubectl cp file <pod>:/path` | Copia entre sistema de arquivos local e container |
+| `ss -tlnp` | `kubectl get svc` | Lista Services e seus mapeamentos de porta |
+| `cat /etc/systemd/system/nginx.service` | `kubectl get deployment nginx -o yaml` | Mostra a spec completa do desired-state |
+| `top` | `kubectl top pods` | Requer Metrics Server (instalado no lab abaixo) |
+| `systemctl restart nginx` | `kubectl rollout restart deployment/nginx` | Aciona um rolling restart de todos os Pods |
+| `systemctl list-units` | `kubectl get all` | Lista tipos de recursos comuns em um namespace |
+| `hostnamectl` | `kubectl get nodes -o wide` | Mostra nomes dos nodes, IPs, SO e versão do kernel |
 
 ---
 
-> **Where the Linux Analogy Breaks**
+> **Onde a Analogia com Linux Quebra**
 >
-> **`kubectl exec` is not SSH.** It looks like SSH, but the Pod might be replaced at any time by a controller. Never make production changes via exec — change the manifest instead. Anything you do inside a container via exec is *ephemeral* and will be lost when the Pod is recreated.
+> **`kubectl exec` não é SSH.** Parece SSH, mas o Pod pode ser substituído a qualquer momento por um controller. Nunca faça mudanças em produção via exec — mude o manifesto. Qualquer coisa que você faça dentro de um container via exec é *efêmera* e será perdida quando o Pod for recriado.
 >
-> **`kubectl logs` shows container stdout/stderr, not system logs.** There's no `journalctl` equivalent for the cluster itself from kubectl. Kubelet logs, API server logs, and other system-level logs live on the nodes and require node-level access to inspect (or a log aggregation solution like Fluentd or Loki).
+> **`kubectl logs` mostra stdout/stderr do container, não logs do sistema.** Não existe um equivalente ao `journalctl` para o cluster em si a partir do kubectl. Logs do kubelet, logs do API server e outros logs de nível de sistema ficam nos nodes e requerem acesso em nível de node para inspeção (ou uma solução de agregação de logs como Fluentd ou Loki).
 >
-> **You never "log into a node" for normal operations.** Unlike SSH where you connect to a specific server, kubectl connects to the API server, which proxies everything. The API server is the single entry point — you interact with the cluster, not with individual machines. This is by design: nodes are cattle, not pets.
+> **Você nunca "loga em um node" para operações normais.** Diferente do SSH onde você conecta a um servidor específico, kubectl conecta ao API server, que faz proxy de tudo. O API server é o ponto de entrada único — você interage com o cluster, não com máquinas individuais. Isso é por design: nodes são gado, não animais de estimação.
 
 ---
 
-## Diagnostic Lab: Getting Comfortable with kubectl and Kind
+## Laboratório Diagnóstico: Ficando Confortável com kubectl e Kind
 
-This is the hands-on chapter. Take your time with this lab — the goal is for kubectl to feel natural by the end.
+Este é o capítulo prático. Leve seu tempo com este laboratório — o objetivo é que kubectl pareça natural ao final.
 
-### Step 1: Create a Multi-Node Kind Cluster
+### Passo 1: Crie um Cluster Kind Multi-Node
 
-Create the cluster configuration file:
+Crie o arquivo de configuração do cluster:
 
 ```bash
 cat <<EOF > kind-config.yaml
@@ -332,7 +332,7 @@ nodes:
 EOF
 ```
 
-Create the cluster:
+Crie o cluster:
 
 ```bash
 kind create cluster --name first-cluster --config kind-config.yaml
@@ -340,185 +340,185 @@ kind create cluster --name first-cluster --config kind-config.yaml
 
 ---
 
-### Step 2: Explore the Cluster
+### Passo 2: Explore o Cluster
 
-Get familiar with what you're working with:
+Familiarize-se com o que você está trabalhando:
 
 ```bash
-# See all nodes and their details
+# Ver todos os nodes e seus detalhes
 kubectl get nodes -o wide
 
-# What's running across the entire cluster?
+# O que está rodando em todo o cluster?
 kubectl get pods -A
 
-# Cluster endpoint info
+# Informações do endpoint do cluster
 kubectl cluster-info
 
-# What resource types does this cluster support?
+# Quais tipos de recursos este cluster suporta?
 kubectl api-resources | head -20
 
-# How many resource types are available?
+# Quantos tipos de recursos estão disponíveis?
 kubectl api-resources --no-headers | wc -l
 ```
 
-Take a moment with `kubectl get pods -A`. These are the system components you learned about in Chapter 3 — etcd, kube-apiserver, kube-scheduler, kube-controller-manager, CoreDNS, kube-proxy — all running as Pods in the `kube-system` namespace.
+Demore um momento com `kubectl get pods -A`. Estes são os componentes do sistema que você aprendeu no Capítulo 3 — etcd, kube-apiserver, kube-scheduler, kube-controller-manager, CoreDNS, kube-proxy — todos rodando como Pods no namespace `kube-system`.
 
 ---
 
-### Step 3: Deploy an Application Imperatively
+### Passo 3: Faça Deploy de uma Aplicação Imperativamente
 
-Create a Deployment and expose it:
+Crie um Deployment e exponha-o:
 
 ```bash
-# Create a Deployment with 3 replicas
+# Criar um Deployment com 3 réplicas
 kubectl create deployment nginx --image=nginx:1.27 --replicas=3
 
-# Expose it as a Service
+# Expô-lo como um Service
 kubectl expose deployment nginx --port=80 --type=NodePort
 ```
 
-Verify everything was created:
+Verifique que tudo foi criado:
 
 ```bash
 kubectl get all
 ```
 
-You should see the Deployment, ReplicaSet, 3 Pods, and a Service.
+Você deve ver o Deployment, ReplicaSet, 3 Pods e um Service.
 
 ---
 
-### Step 4: Inspect Everything
+### Passo 4: Inspecione Tudo
 
-Now let's explore like a Linux admin would:
+Agora vamos explorar como um admin Linux faria:
 
 ```bash
-# Detailed view of the Deployment
+# Visão detalhada do Deployment
 kubectl describe deployment nginx
 
-# See which node each Pod is running on
+# Ver em qual node cada Pod está rodando
 kubectl get pods -o wide
 
-# Check the events timeline (your system log for the cluster)
+# Verificar a linha do tempo de eventos (seu log do sistema para o cluster)
 kubectl get events --sort-by=.metadata.creationTimestamp
 
-# View the full Deployment spec
+# Ver a spec completa do Deployment
 kubectl get deployment nginx -o yaml
 
-# Extract just the container image with JSONPath
+# Extrair apenas a imagem do container com JSONPath
 kubectl get deployment nginx -o jsonpath='{.spec.template.spec.containers[0].image}'
 ```
 
-Look at the `kubectl get pods -o wide` output. Notice how the 3 Pods are distributed across the worker nodes? That's the scheduler doing its job.
+Olhe a saída do `kubectl get pods -o wide`. Note como os 3 Pods estão distribuídos entre os worker nodes? Esse é o scheduler fazendo seu trabalho.
 
 ---
 
-### Step 5: Debug Like a Linux Admin
+### Passo 5: Depure Como um Admin Linux
 
-**Exec into a Pod (your SSH replacement):**
+**Exec em um Pod (seu substituto do SSH):**
 
 ```bash
-# Get a shell inside a running container
+# Obter um shell dentro de um container em execução
 kubectl exec -it $(kubectl get pods -l app=nginx -o jsonpath='{.items[0].metadata.name}') -- /bin/sh
 ```
 
-Once inside:
+Uma vez dentro:
 
 ```sh
-# Check the process list (you're inside a container)
+# Verificar a lista de processos (você está dentro de um container)
 ps aux
 
-# Verify nginx is running
+# Verificar se o nginx está rodando
 curl -s localhost
 
-# Check the filesystem
+# Verificar o sistema de arquivos
 ls /etc/nginx/
 
-# Exit the shell
+# Sair do shell
 exit
 ```
 
-**View container logs (your journalctl replacement):**
+**Visualizar logs do container (seu substituto do journalctl):**
 
 ```bash
-# Logs from a specific Pod
+# Logs de um Pod específico
 kubectl logs $(kubectl get pods -l app=nginx -o jsonpath='{.items[0].metadata.name}')
 
-# Follow logs in real time (like journalctl -f)
+# Seguir logs em tempo real (como journalctl -f)
 kubectl logs -f deployment/nginx
 
-# Press Ctrl+C to stop following
+# Pressione Ctrl+C para parar de seguir
 ```
 
-**Port-forward to access the Service (your SSH tunnel replacement):**
+**Port-forward para acessar o Service (seu substituto do túnel SSH):**
 
 ```bash
-# Forward local port 8080 to the Service's port 80
+# Encaminhar porta local 8080 para a porta 80 do Service
 kubectl port-forward svc/nginx 8080:80 &
 
-# Test it
+# Testar
 curl -s localhost:8080
 
-# Stop the port-forward
+# Parar o port-forward
 kill %1
 ```
 
 ---
 
-### Step 6: Switch to Declarative
+### Passo 6: Mude para Declarativo
 
-**Export the existing Deployment to YAML:**
+**Exporte o Deployment existente para YAML:**
 
 ```bash
 kubectl get deployment nginx -o yaml > nginx-deployment.yaml
 ```
 
-**Edit the file — change replicas from 3 to 5:**
+**Edite o arquivo — mude replicas de 3 para 5:**
 
 ```bash
 sed -i 's/replicas: 3/replicas: 5/' nginx-deployment.yaml
 ```
 
-> **Note:** On macOS with BSD sed, use `sed -i '' 's/replicas: 3/replicas: 5/' nginx-deployment.yaml` instead.
+> **Nota:** No macOS com BSD sed, use `sed -i '' 's/replicas: 3/replicas: 5/' nginx-deployment.yaml` em vez disso.
 
-**Apply the change declaratively:**
+**Aplique a mudança declarativamente:**
 
 ```bash
 kubectl apply -f nginx-deployment.yaml
 ```
 
-**Verify the scaling:**
+**Verifique o escalonamento:**
 
 ```bash
 kubectl get pods -l app=nginx
 ```
 
-You should see 5 Pods.
+Você deve ver 5 Pods.
 
-**Run diff — there should be no difference since we just applied:**
+**Execute diff — não deve haver diferença já que acabamos de aplicar:**
 
 ```bash
 kubectl diff -f nginx-deployment.yaml
 ```
 
-If there's no output (or just metadata differences like `resourceVersion`), the cluster state matches the file. This is the declarative workflow: the file is truth, and `apply` makes the cluster match.
+Se não há saída (ou apenas diferenças de metadados como `resourceVersion`), o estado do cluster corresponde ao arquivo. Este é o fluxo declarativo: o arquivo é a verdade, e `apply` faz o cluster corresponder.
 
-**Generate a clean manifest from scratch (the recommended approach):**
+**Gere um manifesto limpo do zero (a abordagem recomendada):**
 
-Instead of exporting from a running resource (which includes lots of runtime fields), use dry-run to generate clean YAML:
+Em vez de exportar de um recurso em execução (que inclui muitos campos de runtime), use dry-run para gerar YAML limpo:
 
 ```bash
 kubectl create deployment nginx-clean --image=nginx:1.27 --replicas=3 --dry-run=client -o yaml > nginx-clean.yaml
 ```
 
-Look at the difference:
+Veja a diferença:
 
 ```bash
 wc -l nginx-deployment.yaml nginx-clean.yaml
 ```
 
-The dry-run version is much shorter — it only has what you actually need.
+A versão com dry-run é muito mais curta — ela só tem o que você realmente precisa.
 
-Clean up the test manifest:
+Limpe o manifesto de teste:
 
 ```bash
 rm -f nginx-clean.yaml
@@ -526,43 +526,43 @@ rm -f nginx-clean.yaml
 
 ---
 
-### Step 7: Clean Up
+### Passo 7: Limpeza
 
 ```bash
-# Delete using the manifest (declarative)
+# Deletar usando o manifesto (declarativo)
 kubectl delete -f nginx-deployment.yaml
 
-# Delete the Service
+# Deletar o Service
 kubectl delete svc nginx
 
-# Clean up the local files
+# Limpar os arquivos locais
 rm -f nginx-deployment.yaml kind-config.yaml
 
-# Delete the Kind cluster
+# Deletar o cluster Kind
 kind delete cluster --name first-cluster
 ```
 
 ---
 
-## Key Takeaways
+## Pontos-Chave
 
-1. **Kind lets you run multi-node clusters locally.** Control plane + workers, port mappings, custom configurations — all in Docker containers on your machine.
+1. **Kind permite rodar clusters multi-node localmente.** Control plane + workers, mapeamento de portas, configurações personalizadas — tudo em containers Docker na sua máquina.
 
-2. **Kubeconfig is your SSH config for clusters.** It defines where to connect (clusters), how to authenticate (users), and shortcuts to switch between them (contexts).
+2. **Kubeconfig é o seu SSH config para clusters.** Ele define onde conectar (clusters), como autenticar (users) e atalhos para alternar entre eles (contexts).
 
-3. **kubectl follows a consistent verb-resource pattern.** Learn the verbs (`get`, `describe`, `apply`, `delete`, `exec`, `logs`) and the resource types (`pods`, `deployments`, `services`), and you can navigate any cluster.
+3. **kubectl segue um padrão consistente de verbo-recurso.** Aprenda os verbos (`get`, `describe`, `apply`, `delete`, `exec`, `logs`) e os tipos de recurso (`pods`, `deployments`, `services`), e você pode navegar qualquer cluster.
 
-4. **Output formats are powerful.** `-o wide` for quick debugging, `-o yaml` for full specs, `-o jsonpath` for scripting. Master these and you'll never feel lost.
+4. **Formatos de saída são poderosos.** `-o wide` para debugging rápido, `-o yaml` para specs completas, `-o jsonpath` para scripts. Domine estes e você nunca se sentirá perdido.
 
-5. **Imperative for exploration, declarative for production.** Use `kubectl create` to experiment fast. Use `kubectl apply -f` with version-controlled YAML for anything that matters.
+5. **Imperativo para exploração, declarativo para produção.** Use `kubectl create` para experimentar rápido. Use `kubectl apply -f` com YAML versionado para qualquer coisa que importa.
 
-6. **`--dry-run=client -o yaml` is your manifest generator.** Don't write YAML from scratch — let kubectl generate the template, then customize.
+6. **`--dry-run=client -o yaml` é seu gerador de manifestos.** Não escreva YAML do zero — deixe o kubectl gerar o template, depois personalize.
 
-7. **`kubectl exec` and `kubectl logs` are your SSH and journalctl.** They're good enough for debugging, but remember: the Pod is ephemeral. The manifest is the source of truth, not the running container.
+7. **`kubectl exec` e `kubectl logs` são seu SSH e journalctl.** São bons o suficiente para debugging, mas lembre-se: o Pod é efêmero. O manifesto é a fonte da verdade, não o container em execução.
 
 ---
 
-## Further Reading
+## Leitura Adicional
 
 - [kubectl Overview](https://kubernetes.io/docs/reference/kubectl/)
 - [kubectl Quick Reference (Cheat Sheet)](https://kubernetes.io/docs/reference/kubectl/quick-reference/)
@@ -574,5 +574,5 @@ kind delete cluster --name first-cluster
 
 ---
 
-**Previous:** [Chapter 4 — How Kubernetes Thinks](04-how-kubernetes-thinks.md)
-**Next:** [Chapter 6 — Pods and Workloads](06-pods-and-workloads.md)
+**Anterior:** [Capítulo 4 — Como o Kubernetes Pensa](04-how-kubernetes-thinks.md)
+**Próximo:** [Capítulo 6 — Pods e Workloads](06-pods-and-workloads.md)

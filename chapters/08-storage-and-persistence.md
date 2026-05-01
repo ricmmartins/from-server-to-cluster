@@ -1,52 +1,52 @@
-# Chapter 8: Storage and Persistence
+# Capítulo 8: Armazenamento e Persistência
 
-*"Data that doesn't survive a reboot isn't data — it's a suggestion."*
-
----
-
-## When Everything Is Ephemeral, Where Does Your Data Live?
-
-On a Linux server, storage feels permanent. You partition a disk with `fdisk`, format it with `mkfs.ext4`, mount it to `/data`, and add an entry in `/etc/fstab` so it comes back after a reboot. Your files are right there on the metal. You can `ls /data` and see them. You can `du -sh /data` and know exactly how much space you're using. The relationship between your data and the disk is direct, physical, and obvious.
-
-Kubernetes breaks that relationship — deliberately.
-
-Containers are ephemeral by design. When a pod dies (and pods die all the time — crashes, rescheduling, rolling updates), its filesystem vanishes with it. Every file the container wrote, every log entry, every temporary calculation — gone. It's as if every process on your Linux server ran on a tmpfs mount that got wiped on every reboot.
-
-For stateless applications (a web frontend, an API gateway), this is fine. The container starts, serves requests, and dies without remorse. But the moment you have a database, a file upload service, or anything that needs to remember something between restarts, you need persistence. You need storage that outlives the pod.
-
-This chapter is about how Kubernetes solves that problem — and how the concepts map back to the Linux storage stack you already know.
+*"Dados que não sobrevivem a um reboot não são dados — são uma sugestão."*
 
 ---
 
-## The Ephemeral Problem
+## Quando Tudo é Efêmero, Onde Ficam Seus Dados?
 
-Let's make this concrete. When you run a container, it gets a writable layer on top of the image's read-only layers (this is the overlay filesystem from Chapter 2). Any file the container creates lives in that writable layer.
+Em um servidor Linux, o armazenamento parece permanente. Você particiona um disco com `fdisk`, formata com `mkfs.ext4`, monta em `/data`, e adiciona uma entrada no `/etc/fstab` para que ele volte após um reboot. Seus arquivos estão ali no metal. Você pode fazer `ls /data` e vê-los. Pode fazer `du -sh /data` e saber exatamente quanto espaço está usando. A relação entre seus dados e o disco é direta, física e óbvia.
 
-The problem: that writable layer is tied to the container's lifecycle. Delete the pod, and the layer is garbage-collected. Reschedule the pod to a different node, and it starts fresh with a clean writable layer.
+Kubernetes quebra essa relação — deliberadamente.
 
-This is like running every service on your Linux server with its working directory on a `tmpfs` mount:
+Containers são efêmeros por design. Quando um pod morre (e pods morrem o tempo todo — crashes, reagendamentos, rolling updates), seu sistema de arquivos desaparece junto. Cada arquivo que o container escreveu, cada entrada de log, cada cálculo temporário — tudo perdido. É como se cada processo no seu servidor Linux rodasse em um mount tmpfs que fosse apagado em cada reboot.
+
+Para aplicações stateless (um frontend web, um API gateway), isso é aceitável. O container inicia, serve requisições e morre sem remorso. Mas no momento em que você tem um banco de dados, um serviço de upload de arquivos, ou qualquer coisa que precisa lembrar algo entre reinícios, você precisa de persistência. Você precisa de armazenamento que sobreviva ao pod.
+
+Este capítulo é sobre como o Kubernetes resolve esse problema — e como os conceitos se mapeiam de volta para a pilha de armazenamento Linux que você já conhece.
+
+---
+
+## O Problema da Efemeridade
+
+Vamos tornar isso concreto. Quando você executa um container, ele recebe uma camada gravável por cima das camadas somente-leitura da imagem (esse é o sistema de arquivos overlay do Capítulo 2). Qualquer arquivo que o container cria vive nessa camada gravável.
+
+O problema: essa camada gravável está atrelada ao ciclo de vida do container. Delete o pod, e a camada é coletada pelo garbage collector. Reagende o pod para um node diferente, e ele começa do zero com uma camada gravável limpa.
+
+Isso é como executar cada serviço no seu servidor Linux com seu diretório de trabalho em um mount `tmpfs`:
 
 ```bash
 mount -t tmpfs tmpfs /var/lib/myapp
 systemctl start myapp
-# myapp writes data to /var/lib/myapp...
+# myapp grava dados em /var/lib/myapp...
 systemctl stop myapp
-# Data is gone. Forever.
+# Dados perdidos. Para sempre.
 ```
 
-Nobody would do this on a Linux server (at least not for data they care about). But in Kubernetes, this is the default behavior. You have to explicitly opt into persistence.
+Ninguém faria isso em um servidor Linux (pelo menos não para dados que importam). Mas no Kubernetes, esse é o comportamento padrão. Você precisa explicitamente optar pela persistência.
 
 ---
 
-## Volume Types
+## Tipos de Volume
 
-Kubernetes provides several volume types, each solving a different storage problem. Let's walk through them from simplest to most powerful.
+O Kubernetes fornece vários tipos de volume, cada um resolvendo um problema de armazenamento diferente. Vamos percorrê-los do mais simples ao mais poderoso.
 
-### emptyDir — Temporary Shared Storage
+### emptyDir — Armazenamento Temporário Compartilhado
 
-An `emptyDir` volume is created when a pod is assigned to a node and exists as long as the pod runs on that node. When the pod is removed, the data in the `emptyDir` is deleted permanently.
+Um volume `emptyDir` é criado quando um pod é atribuído a um node e existe enquanto o pod rodar naquele node. Quando o pod é removido, os dados no `emptyDir` são deletados permanentemente.
 
-Think of it as a `/tmp` directory shared between all containers in the same pod:
+Pense nele como um diretório `/tmp` compartilhado entre todos os containers no mesmo pod:
 
 ```yaml
 apiVersion: v1
@@ -72,9 +72,9 @@ spec:
     emptyDir: {}
 ```
 
-Two containers, one volume. The writer puts a file in `/shared`, and the reader can see it. This is exactly like two processes on a Linux box sharing `/tmp`.
+Dois containers, um volume. O writer coloca um arquivo em `/shared`, e o reader pode vê-lo. Isso é exatamente como dois processos em uma máquina Linux compartilhando `/tmp`.
 
-You can also back an `emptyDir` with memory instead of disk:
+Você também pode usar memória ao invés de disco como backing de um `emptyDir`:
 
 ```yaml
 volumes:
@@ -84,11 +84,11 @@ volumes:
     sizeLimit: 64Mi
 ```
 
-This creates a tmpfs mount — fast, but counts against the container's memory limit. Useful for scratch space, caches, or shared sockets between sidecar containers.
+Isso cria um mount tmpfs — rápido, mas conta contra o limite de memória do container. Útil para espaço temporário, caches, ou sockets compartilhados entre containers sidecar.
 
-### hostPath — Direct Host Filesystem Access
+### hostPath — Acesso Direto ao Filesystem do Host
 
-A `hostPath` volume mounts a file or directory from the host node's filesystem into a pod. This is the Kubernetes equivalent of a bind mount:
+Um volume `hostPath` monta um arquivo ou diretório do filesystem do node host dentro de um pod. É o equivalente Kubernetes de um bind mount:
 
 ```yaml
 volumes:
@@ -98,17 +98,17 @@ volumes:
     type: Directory
 ```
 
-On a Linux server, this is like:
+Em um servidor Linux, isso é como:
 
 ```bash
 mount --bind /var/log/host /container/logs
 ```
 
-**Warning:** `hostPath` is dangerous in production. Your pod is now coupled to a specific node's filesystem. If the pod gets rescheduled to a different node, the data isn't there. It also creates security risks — a container with access to the host filesystem can do a lot of damage. Use it for development and specific system-level DaemonSets (like log collectors), but never for application data in production.
+**Aviso:** `hostPath` é perigoso em produção. Seu pod agora está acoplado ao filesystem de um node específico. Se o pod for reagendado para um node diferente, os dados não estarão lá. Também cria riscos de segurança — um container com acesso ao filesystem do host pode causar muito estrago. Use-o para desenvolvimento e DaemonSets específicos de nível de sistema (como coletores de log), mas nunca para dados de aplicação em produção.
 
-### PersistentVolume (PV) — Cluster-Level Storage
+### PersistentVolume (PV) — Armazenamento no Nível do Cluster
 
-A PersistentVolume is a piece of storage in the cluster that has been provisioned by an administrator or dynamically provisioned by a StorageClass. Think of it as a disk partition that the cluster admin has prepared and made available:
+Um PersistentVolume é um pedaço de armazenamento no cluster que foi provisionado por um administrador ou provisionado dinamicamente por um StorageClass. Pense nele como uma partição de disco que o admin do cluster preparou e disponibilizou:
 
 ```yaml
 apiVersion: v1
@@ -125,13 +125,13 @@ spec:
     path: /mnt/data
 ```
 
-This is like the admin running `fdisk`, `mkfs`, and adding the entry to `/etc/fstab` — preparing storage for use, but not yet mounting it to any specific application.
+Isso é como o admin executando `fdisk`, `mkfs`, e adicionando a entrada no `/etc/fstab` — preparando armazenamento para uso, mas ainda não montando em nenhuma aplicação específica.
 
-A PV exists independently of any pod. It's a cluster-level resource (not namespaced), just like a physical disk exists independently of any process that might use it.
+Um PV existe independentemente de qualquer pod. É um recurso no nível do cluster (não namespaced), assim como um disco físico existe independentemente de qualquer processo que possa usá-lo.
 
-### PersistentVolumeClaim (PVC) — Requesting Storage
+### PersistentVolumeClaim (PVC) — Solicitando Armazenamento
 
-A PersistentVolumeClaim is how a pod requests storage. It's like a user saying "I need 1GB of read-write storage" without caring about which specific disk provides it:
+Um PersistentVolumeClaim é como um pod solicita armazenamento. É como um usuário dizendo "preciso de 1GB de armazenamento leitura-escrita" sem se importar com qual disco específico o fornece:
 
 ```yaml
 apiVersion: v1
@@ -146,9 +146,9 @@ spec:
       storage: 1Gi
 ```
 
-Kubernetes looks at the available PVs, finds one that satisfies the claim (enough capacity, compatible access mode), and binds them together. Once bound, the PVC is exclusively tied to that PV.
+O Kubernetes olha os PVs disponíveis, encontra um que satisfaz a solicitação (capacidade suficiente, modo de acesso compatível), e os vincula. Uma vez vinculado, o PVC é exclusivamente atrelado àquele PV.
 
-A pod then references the PVC in its volume spec:
+Um pod então referencia o PVC na sua spec de volume:
 
 ```yaml
 volumes:
@@ -157,15 +157,15 @@ volumes:
     claimName: my-pvc
 ```
 
-The separation is intentional. The admin manages PVs (the "what storage exists"). The developer manages PVCs (the "what storage I need"). The pod just says "give me the storage that PVC promised." This decouples infrastructure from application concerns.
+A separação é intencional. O admin gerencia PVs (o "qual armazenamento existe"). O desenvolvedor gerencia PVCs (o "qual armazenamento eu preciso"). O pod apenas diz "me dê o armazenamento que o PVC prometeu." Isso desacopla infraestrutura de preocupações da aplicação.
 
 ---
 
-## StorageClasses — Dynamic Provisioning
+## StorageClasses — Provisionamento Dinâmico
 
-In the PV/PVC model above, someone has to manually create PVs before pods can claim them. That's fine for small clusters, but it doesn't scale. Imagine an admin manually creating disk partitions every time a developer needs storage — that's a bottleneck.
+No modelo PV/PVC acima, alguém precisa criar PVs manualmente antes que pods possam solicitá-los. Isso é aceitável para clusters pequenos, mas não escala. Imagine um admin criando manualmente partições de disco toda vez que um desenvolvedor precisa de armazenamento — isso é um gargalo.
 
-StorageClasses solve this by enabling dynamic provisioning. Instead of pre-creating PVs, you define a StorageClass that describes *how* to create storage on demand:
+StorageClasses resolvem isso habilitando provisionamento dinâmico. Ao invés de pré-criar PVs, você define um StorageClass que descreve *como* criar armazenamento sob demanda:
 
 ```yaml
 apiVersion: storage.k8s.io/v1
@@ -179,63 +179,63 @@ reclaimPolicy: Delete
 volumeBindingMode: WaitForFirstConsumer
 ```
 
-Now when a PVC references this StorageClass, the provisioner automatically creates the backing storage (in this case, an Azure Premium SSD), creates a PV for it, and binds it to the PVC. No admin intervention needed.
+Agora quando um PVC referencia este StorageClass, o provisioner automaticamente cria o armazenamento de backing (neste caso, um Azure Premium SSD), cria um PV para ele, e o vincula ao PVC. Sem intervenção do admin.
 
-This is like LVM thin provisioning on Linux — you define a pool and a policy, and logical volumes are carved out on demand as applications request them. Or think of it as the difference between the admin manually partitioning disks versus setting up LVM to auto-allocate from a volume group.
+Isso é como LVM thin provisioning no Linux — você define um pool e uma política, e volumes lógicos são criados sob demanda conforme aplicações os solicitam. Ou pense nisso como a diferença entre o admin particionar discos manualmente versus configurar LVM para alocar automaticamente de um volume group.
 
-Most Kubernetes distributions come with a default StorageClass. Kind uses `standard` backed by the Rancher local-path-provisioner. Cloud providers ship their own (Azure: `managed-csi`, AWS: `gp3`, GKE: `standard-rwo`). You can see what's available with:
+A maioria das distribuições Kubernetes vem com um StorageClass padrão. Kind usa `standard` baseado no Rancher local-path-provisioner. Provedores de nuvem possuem os seus (Azure: `managed-csi`, AWS: `gp3`, GKE: `standard-rwo`). Você pode ver o que está disponível com:
 
 ```bash
 kubectl get storageclass
 ```
 
-The default StorageClass (marked with `(default)`) is used when a PVC doesn't specify one.
+O StorageClass padrão (marcado com `(default)`) é usado quando um PVC não especifica um.
 
 ---
 
-## Access Modes
+## Modos de Acesso
 
-PersistentVolumes support different access modes that control how many nodes can mount the volume simultaneously:
+PersistentVolumes suportam diferentes modos de acesso que controlam quantos nodes podem montar o volume simultaneamente:
 
-| Access Mode | Abbreviation | Description |
-|-------------|-------------|-------------|
-| ReadWriteOnce | RWO | Mounted as read-write by a single node |
-| ReadOnlyMany | ROX | Mounted as read-only by many nodes |
-| ReadWriteMany | RWX | Mounted as read-write by many nodes |
-| ReadWriteOncePod | RWOP | Mounted as read-write by a single pod (K8s 1.27+) |
+| Modo de Acesso | Abreviação | Descrição |
+|----------------|-----------|-----------|
+| ReadWriteOnce | RWO | Montado como leitura-escrita por um único node |
+| ReadOnlyMany | ROX | Montado como somente-leitura por muitos nodes |
+| ReadWriteMany | RWX | Montado como leitura-escrita por muitos nodes |
+| ReadWriteOncePod | RWOP | Montado como leitura-escrita por um único pod (K8s 1.27+) |
 
-Think of these like NFS mount options on Linux:
+Pense nestes como opções de montagem NFS no Linux:
 
-- RWO is like mounting an ext4 partition — only one machine can mount it read-write.
-- ROX is like `mount -o ro` on NFS — many machines can read, none can write.
-- RWX is like a full NFS read-write mount — many machines can read and write.
-- RWOP is the strictest — even if multiple pods run on the same node, only one can mount it.
+- RWO é como montar uma partição ext4 — apenas uma máquina pode montá-la como leitura-escrita.
+- ROX é como `mount -o ro` em NFS — muitas máquinas podem ler, nenhuma pode escrever.
+- RWX é como um mount NFS completo de leitura-escrita — muitas máquinas podem ler e escrever.
+- RWOP é o mais restritivo — mesmo que múltiplos pods rodem no mesmo node, apenas um pode montá-lo.
 
-Not all storage backends support all access modes. Local disks typically only support RWO. Network filesystems like NFS or Azure Files support RWX. Check your CSI driver's documentation for what's supported.
-
----
-
-## Reclaim Policies
-
-When a PVC is deleted, what happens to the underlying PV and its data? The reclaim policy decides:
-
-| Policy | Behavior | Linux Analogy |
-|--------|----------|---------------|
-| Retain | PV and data are preserved. Admin must manually clean up. | `umount /data` — the partition and its files still exist |
-| Delete | PV and the backing storage are both deleted. | `umount /data && wipefs -a /dev/sdb1` — everything is gone |
-
-The `Retain` policy is safer — you won't accidentally lose data. But it means someone has to manually reclaim the PV after the PVC is gone. The `Delete` policy is convenient for ephemeral workloads but dangerous if you delete a PVC by mistake.
+Nem todos os backends de armazenamento suportam todos os modos de acesso. Discos locais tipicamente só suportam RWO. Sistemas de arquivos de rede como NFS ou Azure Files suportam RWX. Verifique a documentação do seu driver CSI para saber o que é suportado.
 
 ---
 
-## CSI — The Container Storage Interface
+## Políticas de Recuperação (Reclaim Policies)
 
-CSI is the plugin system that lets Kubernetes talk to any storage backend. It's like Linux device drivers, but for storage. Instead of Kubernetes knowing about every possible storage system (Azure Disks, AWS EBS, NFS, Ceph, etc.), it defines a standard interface that storage providers implement.
+Quando um PVC é deletado, o que acontece com o PV subjacente e seus dados? A política de recuperação decide:
 
-Common CSI drivers:
+| Política | Comportamento | Analogia Linux |
+|----------|--------------|----------------|
+| Retain | PV e dados são preservados. Admin deve limpar manualmente. | `umount /data` — a partição e seus arquivos ainda existem |
+| Delete | PV e o armazenamento de backing são ambos deletados. | `umount /data && wipefs -a /dev/sdb1` — tudo se foi |
 
-| Storage Backend | CSI Driver |
-|----------------|------------|
+A política `Retain` é mais segura — você não vai perder dados acidentalmente. Mas significa que alguém precisa reclamar manualmente o PV após o PVC ser deletado. A política `Delete` é conveniente para workloads efêmeros mas perigosa se você deletar um PVC por engano.
+
+---
+
+## CSI — Container Storage Interface
+
+CSI é o sistema de plugins que permite ao Kubernetes se comunicar com qualquer backend de armazenamento. É como drivers de dispositivo do Linux, mas para armazenamento. Ao invés do Kubernetes conhecer todos os possíveis sistemas de armazenamento (Azure Disks, AWS EBS, NFS, Ceph, etc.), ele define uma interface padrão que provedores de armazenamento implementam.
+
+Drivers CSI comuns:
+
+| Backend de Armazenamento | Driver CSI |
+|--------------------------|------------|
 | Azure Disk | disk.csi.azure.com |
 | Azure Files | file.csi.azure.com |
 | AWS EBS | ebs.csi.aws.com |
@@ -243,67 +243,67 @@ Common CSI drivers:
 | NFS | nfs.csi.k8s.io |
 | Ceph | rbd.csi.ceph.com |
 
-On a Linux server, you install a kernel module to support a new filesystem (`modprobe nfs`). In Kubernetes, you install a CSI driver to support a new storage backend. The principle is the same — a plugin-based architecture that separates the core system from the storage implementation.
+Em um servidor Linux, você instala um módulo do kernel para suportar um novo sistema de arquivos (`modprobe nfs`). No Kubernetes, você instala um driver CSI para suportar um novo backend de armazenamento. O princípio é o mesmo — uma arquitetura baseada em plugins que separa o sistema central da implementação de armazenamento.
 
 ---
 
 ## Volume Snapshots
 
-Volume snapshots are point-in-time copies of a PersistentVolume's data. If you've used LVM snapshots on Linux (`lvcreate --snapshot`), the concept is identical.
+Volume snapshots são cópias point-in-time dos dados de um PersistentVolume. Se você já usou snapshots LVM no Linux (`lvcreate --snapshot`), o conceito é idêntico.
 
-In Kubernetes, snapshots are managed through three objects:
+No Kubernetes, snapshots são gerenciados através de três objetos:
 
-- **VolumeSnapshot** — the request to take a snapshot (like running `lvcreate --snapshot`)
-- **VolumeSnapshotContent** — the actual snapshot data (like the LVM snapshot logical volume)
-- **VolumeSnapshotClass** — the policy for how snapshots are taken (like the LVM snapshot settings)
+- **VolumeSnapshot** — a solicitação para tirar um snapshot (como executar `lvcreate --snapshot`)
+- **VolumeSnapshotContent** — os dados reais do snapshot (como o volume lógico de snapshot LVM)
+- **VolumeSnapshotClass** — a política de como snapshots são tirados (como as configurações de snapshot LVM)
 
-Snapshots require a CSI driver that supports them — not all do. They're implemented as CRDs (Custom Resource Definitions), not built into the core Kubernetes API. This is a more advanced feature that we mention here for completeness; your Kind cluster won't have snapshot support out of the box.
-
----
-
-## Linux ↔ Kubernetes Comparison
-
-| Linux Concept | K8s Equivalent | Notes |
-|---------------|----------------|-------|
-| `/etc/fstab` | PersistentVolume spec | Defines available storage |
-| `mount /dev/sdb1 /data` | PVC volumeMount | Attaches storage to a pod |
-| LVM logical volume | PersistentVolume | Abstracted block/file storage |
-| `mount -t nfs` | PV with NFS provisioner | Network-attached storage |
-| tmpfs | emptyDir (medium: Memory) | Ephemeral in-memory storage |
-| bind mount | hostPath | Direct host filesystem access |
-| LVM thin provisioning | StorageClass + dynamic provisioning | On-demand allocation |
-| `lvcreate --snapshot` | VolumeSnapshot | Point-in-time copy |
-| `/etc/fstab` options (ro, rw) | Access Modes (ROX, RWO, RWX) | Read/write permissions |
-| `fdisk` + `mkfs` + `mount` | Static PV provisioning | Admin manually prepares storage |
-| LVM auto-extend | Dynamic provisioning via StorageClass | Automatic storage creation on demand |
+Snapshots requerem um driver CSI que os suporte — nem todos suportam. Eles são implementados como CRDs (Custom Resource Definitions), não embutidos na API core do Kubernetes. Esta é uma funcionalidade mais avançada que mencionamos aqui para completude; seu cluster Kind não terá suporte a snapshots pronto para uso.
 
 ---
 
-> ### 🔀 Where the Linux Analogy Breaks
->
-> - **Storage is decoupled from compute.** In Linux, storage is directly attached to the machine — your SSD is physically inside (or cable-connected to) the server. In Kubernetes, storage is a cluster resource that can be attached to any pod on any node, thanks to CSI drivers and network-attached storage. You don't think about "which server has the disk" — you think about "which pod needs the data."
->
-> - **PVCs have their own lifecycle.** A PVC isn't just a mount request that disappears when you unmount. It's a persistent Kubernetes object that exists independently of any pod. Deleting a pod doesn't delete its PVC (unless explicit cascading is configured). This means data survives pod restarts, rescheduling, and even deliberate pod deletion.
->
-> - **Dynamic provisioning eliminates the admin workflow.** On Linux, the storage workflow is `fdisk` → `mkfs` → `mount` → update `/etc/fstab`. A human runs each step. With StorageClasses, you skip all of that — the provisioner creates the backing storage, formats it, and makes it available automatically. The developer writes a PVC, and the storage appears. This is fundamentally different from the traditional sysadmin experience.
+## Comparação Linux ↔ Kubernetes
+
+| Conceito Linux | Equivalente K8s | Notas |
+|----------------|-----------------|-------|
+| `/etc/fstab` | spec do PersistentVolume | Define armazenamento disponível |
+| `mount /dev/sdb1 /data` | volumeMount do PVC | Anexa armazenamento a um pod |
+| Volume lógico LVM | PersistentVolume | Armazenamento block/file abstraído |
+| `mount -t nfs` | PV com provisioner NFS | Armazenamento conectado via rede |
+| tmpfs | emptyDir (medium: Memory) | Armazenamento efêmero em memória |
+| bind mount | hostPath | Acesso direto ao filesystem do host |
+| LVM thin provisioning | StorageClass + provisionamento dinâmico | Alocação sob demanda |
+| `lvcreate --snapshot` | VolumeSnapshot | Cópia point-in-time |
+| Opções do `/etc/fstab` (ro, rw) | Modos de Acesso (ROX, RWO, RWX) | Permissões de leitura/escrita |
+| `fdisk` + `mkfs` + `mount` | Provisionamento estático de PV | Admin prepara armazenamento manualmente |
+| LVM auto-extend | Provisionamento dinâmico via StorageClass | Criação automática de armazenamento sob demanda |
 
 ---
 
-## Diagnostic Lab: Storage Hands-On
+> ### 🔀 Onde a Analogia com Linux Quebra
+>
+> - **Armazenamento é desacoplado de computação.** No Linux, armazenamento é diretamente conectado à máquina — seu SSD está fisicamente dentro (ou conectado via cabo) ao servidor. No Kubernetes, armazenamento é um recurso do cluster que pode ser anexado a qualquer pod em qualquer node, graças a drivers CSI e armazenamento conectado via rede. Você não pensa sobre "qual servidor tem o disco" — você pensa sobre "qual pod precisa dos dados."
+>
+> - **PVCs têm seu próprio ciclo de vida.** Um PVC não é apenas uma solicitação de mount que desaparece quando você desmonta. É um objeto Kubernetes persistente que existe independentemente de qualquer pod. Deletar um pod não deleta seu PVC (a menos que cascading explícito seja configurado). Isso significa que dados sobrevivem a reinícios de pods, reagendamentos, e até deleção deliberada de pods.
+>
+> - **Provisionamento dinâmico elimina o workflow do admin.** No Linux, o workflow de armazenamento é `fdisk` → `mkfs` → `mount` → atualizar `/etc/fstab`. Um humano executa cada passo. Com StorageClasses, você pula tudo isso — o provisioner cria o armazenamento de backing, formata-o, e o disponibiliza automaticamente. O desenvolvedor escreve um PVC, e o armazenamento aparece. Isso é fundamentalmente diferente da experiência tradicional de sysadmin.
 
-### Prerequisites
+---
 
-Make sure you have a Kind cluster running. If not, create one:
+## Laboratório Diagnóstico: Armazenamento Hands-On
+
+### Pré-requisitos
+
+Certifique-se de que você tem um cluster Kind rodando. Se não, crie um:
 
 ```bash
 kind create cluster --name storage-lab
 ```
 
-### Lab 1: emptyDir — Shared Temporary Storage
+### Lab 1: emptyDir — Armazenamento Temporário Compartilhado
 
-Two containers in one pod sharing an `emptyDir` volume. The writer creates content, and a web server serves it.
+Dois containers em um pod compartilhando um volume `emptyDir`. O writer cria conteúdo, e um servidor web o serve.
 
-Save this as `emptydir-pod.yaml`:
+Salve como `emptydir-pod.yaml`:
 
 ```yaml
 apiVersion: v1
@@ -336,32 +336,32 @@ spec:
     emptyDir: {}
 ```
 
-Apply and verify:
+Aplique e verifique:
 
 ```bash
-# Create the pod
+# Criar o pod
 kubectl apply -f emptydir-pod.yaml
 
-# Wait for it to be running
+# Aguardar até estar rodando
 kubectl wait --for=condition=Ready pod/emptydir-demo --timeout=60s
 
-# Verify the writer created the file
+# Verificar que o writer criou o arquivo
 kubectl exec emptydir-demo -c content-writer -- cat /usr/share/nginx/html/index.html
 
-# Verify the web server can serve it
+# Verificar que o servidor web pode servi-lo
 kubectl exec emptydir-demo -c web-server -- curl -s http://localhost:80
 
-# Clean up
+# Limpar
 kubectl delete pod emptydir-demo
 ```
 
-**What just happened:** Two containers in the same pod shared a filesystem. The busybox sidecar wrote an HTML file, and the nginx container served it. Neither container knew about the other — they just agreed on a mount path. This is the sidecar pattern in action.
+**O que acabou de acontecer:** Dois containers no mesmo pod compartilharam um sistema de arquivos. O sidecar busybox escreveu um arquivo HTML, e o container nginx o serviu. Nenhum container sabia sobre o outro — eles apenas concordaram em um caminho de montagem. Este é o padrão sidecar em ação.
 
-### Lab 2: PersistentVolume and PersistentVolumeClaim — Manual Provisioning
+### Lab 2: PersistentVolume e PersistentVolumeClaim — Provisionamento Manual
 
-Create a PV backed by `hostPath` (suitable for Kind local testing), then claim it with a PVC.
+Crie um PV baseado em `hostPath` (adequado para testes locais com Kind), depois reivindique-o com um PVC.
 
-Save this as `pv-demo.yaml`:
+Salve como `pv-demo.yaml`:
 
 ```yaml
 apiVersion: v1
@@ -390,20 +390,20 @@ spec:
   storageClassName: ""
 ```
 
-Note the `storageClassName: ""` — this tells Kubernetes "don't use dynamic provisioning; bind to an existing PV."
+Note o `storageClassName: ""` — isso diz ao Kubernetes "não use provisionamento dinâmico; vincule a um PV existente."
 
 ```bash
-# Create the PV and PVC
+# Criar o PV e PVC
 kubectl apply -f pv-demo.yaml
 
-# Check that the PVC is bound to the PV
+# Verificar que o PVC está vinculado ao PV
 kubectl get pv
 kubectl get pvc
 ```
 
-You should see the PVC status as `Bound` and the PV showing `manual-pvc` as its claim.
+Você deve ver o status do PVC como `Bound` e o PV mostrando `manual-pvc` como sua solicitação.
 
-Now deploy a pod that writes data to the volume. Save as `pv-writer.yaml`:
+Agora implante um pod que grava dados no volume. Salve como `pv-writer.yaml`:
 
 ```yaml
 apiVersion: v1
@@ -425,18 +425,18 @@ spec:
 ```
 
 ```bash
-# Deploy the writer pod
+# Implantar o pod writer
 kubectl apply -f pv-writer.yaml
 kubectl wait --for=condition=Ready pod/pv-writer --timeout=60s
 
-# Verify data was written
+# Verificar que os dados foram gravados
 kubectl exec pv-writer -- cat /data/message.txt
 
-# Delete the pod (but NOT the PVC)
+# Deletar o pod (mas NÃO o PVC)
 kubectl delete pod pv-writer
 
-# Deploy a new pod that reads from the same PVC
-# Save as pv-reader.yaml:
+# Implantar um novo pod que lê do mesmo PVC
+# Salve como pv-reader.yaml:
 cat <<'EOF' | kubectl apply -f -
 apiVersion: v1
 kind: Pod
@@ -458,34 +458,34 @@ EOF
 
 kubectl wait --for=condition=Ready pod/pv-reader --timeout=60s
 
-# The data survived the pod deletion!
+# Os dados sobreviveram à deleção do pod!
 kubectl exec pv-reader -- cat /data/message.txt
 
-# Clean up
+# Limpar
 kubectl delete pod pv-reader
 kubectl delete pvc manual-pvc
 kubectl delete pv manual-pv
 ```
 
-**What just happened:** You created storage (PV), requested it (PVC), wrote data, destroyed the pod, created a new pod, and the data was still there. The PVC kept the PV bound and the data intact even though the original pod was gone.
+**O que acabou de acontecer:** Você criou armazenamento (PV), o solicitou (PVC), gravou dados, destruiu o pod, criou um novo pod, e os dados ainda estavam lá. O PVC manteve o PV vinculado e os dados intactos mesmo que o pod original tenha sido destruído.
 
-### Lab 3: StorageClass — Dynamic Provisioning
+### Lab 3: StorageClass — Provisionamento Dinâmico
 
-Kind ships with a default StorageClass called `standard` backed by the Rancher local-path-provisioner. Let's use it.
+Kind vem com um StorageClass padrão chamado `standard` baseado no Rancher local-path-provisioner. Vamos usá-lo.
 
 ```bash
-# Inspect the default StorageClass
+# Inspecionar o StorageClass padrão
 kubectl get storageclass
 ```
 
-You should see something like:
+Você deve ver algo como:
 
 ```
 NAME                 PROVISIONER             RECLAIMPOLICY   VOLUMEBINDINGMODE      AGE
 standard (default)   rancher.io/local-path   Delete          WaitForFirstConsumer   5m
 ```
 
-Now create a PVC without specifying a PV — the StorageClass will provision one automatically. Save as `dynamic-pvc.yaml`:
+Agora crie um PVC sem especificar um PV — o StorageClass vai provisionar um automaticamente. Salve como `dynamic-pvc.yaml`:
 
 ```yaml
 apiVersion: v1
@@ -501,14 +501,14 @@ spec:
 ```
 
 ```bash
-# Create the PVC
+# Criar o PVC
 kubectl apply -f dynamic-pvc.yaml
 
-# Check PVC status — it will be Pending until a pod uses it
-# (because the volumeBindingMode is WaitForFirstConsumer)
+# Verificar status do PVC — ele estará Pending até que um pod o use
+# (porque o volumeBindingMode é WaitForFirstConsumer)
 kubectl get pvc dynamic-pvc
 
-# Deploy a pod that uses the PVC
+# Implantar um pod que usa o PVC
 cat <<'EOF' | kubectl apply -f -
 apiVersion: v1
 kind: Pod
@@ -530,27 +530,27 @@ EOF
 
 kubectl wait --for=condition=Ready pod/dynamic-demo --timeout=90s
 
-# Now check again — the PVC should be Bound
+# Agora verifique novamente — o PVC deve estar Bound
 kubectl get pvc dynamic-pvc
 
-# And a PV was automatically created!
+# E um PV foi automaticamente criado!
 kubectl get pv
 
-# Verify the data
+# Verificar os dados
 kubectl exec dynamic-demo -- cat /data/proof.txt
 
-# Clean up
+# Limpar
 kubectl delete pod dynamic-demo
 kubectl delete pvc dynamic-pvc
 ```
 
-**What just happened:** You created a PVC without creating a PV first. When the pod was scheduled, the `standard` StorageClass automatically provisioned a PV and bound it to your PVC. No admin intervention. This is dynamic provisioning — the pattern used in production clusters everywhere.
+**O que acabou de acontecer:** Você criou um PVC sem criar um PV antes. Quando o pod foi agendado, o StorageClass `standard` automaticamente provisionou um PV e o vinculou ao seu PVC. Sem intervenção do admin. Isso é provisionamento dinâmico — o padrão usado em clusters de produção em todo lugar.
 
-### Lab 4: StatefulSet with Per-Replica Storage
+### Lab 4: StatefulSet com Armazenamento Por Réplica
 
-StatefulSets are how Kubernetes handles stateful applications (databases, message queues). Each replica gets its own persistent storage that follows it across restarts.
+StatefulSets são como o Kubernetes lida com aplicações stateful (bancos de dados, filas de mensagens). Cada réplica recebe seu próprio armazenamento persistente que a segue através de reinícios.
 
-Save as `statefulset-demo.yaml`:
+Salve como `statefulset-demo.yaml`:
 
 ```yaml
 apiVersion: v1
@@ -603,67 +603,67 @@ spec:
 ```
 
 ```bash
-# Deploy the StatefulSet
+# Implantar o StatefulSet
 kubectl apply -f statefulset-demo.yaml
 
-# Wait for all pods to be ready
+# Aguardar todos os pods estarem prontos
 kubectl rollout status statefulset/stateful-demo --timeout=120s
 
-# Each pod has its own identity and its own PVC
+# Cada pod tem sua própria identidade e seu próprio PVC
 kubectl get pods -l app=stateful-demo
 kubectl get pvc
 
-# Check each pod's unique data
+# Verificar os dados únicos de cada pod
 kubectl exec stateful-demo-0 -- cat /data/identity.txt
 kubectl exec stateful-demo-1 -- cat /data/identity.txt
 kubectl exec stateful-demo-2 -- cat /data/identity.txt
 
-# Delete a pod — the StatefulSet recreates it with the SAME name and SAME PVC
+# Deletar um pod — o StatefulSet o recria com o MESMO nome e o MESMO PVC
 kubectl delete pod stateful-demo-1
 kubectl wait --for=condition=Ready pod/stateful-demo-1 --timeout=60s
 
-# The data from before the deletion is still there!
+# Os dados de antes da deleção ainda estão lá!
 kubectl exec stateful-demo-1 -- cat /data/identity.txt
 
-# Clean up
+# Limpar
 kubectl delete statefulset stateful-demo
 kubectl delete svc stateful-svc
 kubectl delete pvc data-stateful-demo-0 data-stateful-demo-1 data-stateful-demo-2
 ```
 
-**What just happened:** The StatefulSet created three pods (stateful-demo-0, -1, -2), each with its own PVC (data-stateful-demo-0, -1, -2). When you deleted pod -1, the StatefulSet recreated it with the same name and reattached it to the same PVC. The data survived. This is how databases run on Kubernetes — each replica has its own persistent identity and storage.
+**O que acabou de acontecer:** O StatefulSet criou três pods (stateful-demo-0, -1, -2), cada um com seu próprio PVC (data-stateful-demo-0, -1, -2). Quando você deletou o pod -1, o StatefulSet o recriou com o mesmo nome e o reanexou ao mesmo PVC. Os dados sobreviveram. É assim que bancos de dados rodam no Kubernetes — cada réplica tem sua própria identidade e armazenamento persistente.
 
-### Clean Up
+### Limpeza
 
 ```bash
-# Delete the Kind cluster when done
+# Deletar o cluster Kind quando terminar
 kind delete cluster --name storage-lab
 
-# Remove the YAML files
+# Remover os arquivos YAML
 rm -f emptydir-pod.yaml pv-demo.yaml pv-writer.yaml dynamic-pvc.yaml statefulset-demo.yaml
 ```
 
 ---
 
-## Key Takeaways
+## Principais Conclusões
 
-1. **Container storage is ephemeral by default.** Anything written inside a container's filesystem is lost when the pod dies. If you need data to survive, you must use volumes.
+1. **Armazenamento de container é efêmero por padrão.** Qualquer coisa escrita dentro do sistema de arquivos de um container é perdida quando o pod morre. Se você precisa que dados sobrevivam, deve usar volumes.
 
-2. **emptyDir is for temporary, pod-scoped shared storage.** It's perfect for sidecar patterns where containers in the same pod need to share files, but the data doesn't need to outlive the pod.
+2. **emptyDir é para armazenamento compartilhado temporário, com escopo de pod.** É perfeito para padrões sidecar onde containers no mesmo pod precisam compartilhar arquivos, mas os dados não precisam sobreviver ao pod.
 
-3. **PersistentVolumes and PersistentVolumeClaims separate storage management from consumption.** Admins provision PVs; developers request storage via PVCs. This separation of concerns is a core Kubernetes design principle.
+3. **PersistentVolumes e PersistentVolumeClaims separam gerenciamento de armazenamento do consumo.** Admins provisionam PVs; desenvolvedores solicitam armazenamento via PVCs. Essa separação de responsabilidades é um princípio de design central do Kubernetes.
 
-4. **StorageClasses enable dynamic provisioning.** In production, you almost never create PVs manually. You define a StorageClass, and the provisioner creates storage on demand when PVCs are submitted.
+4. **StorageClasses habilitam provisionamento dinâmico.** Em produção, você quase nunca cria PVs manualmente. Você define um StorageClass, e o provisioner cria armazenamento sob demanda quando PVCs são submetidos.
 
-5. **Access Modes control concurrent access.** RWO for single-node writes, ROX for multi-node reads, RWX for multi-node writes. Your storage backend determines which modes are available.
+5. **Modos de Acesso controlam acesso concorrente.** RWO para escrita em um único node, ROX para leitura em múltiplos nodes, RWX para escrita em múltiplos nodes. Seu backend de armazenamento determina quais modos estão disponíveis.
 
-6. **StatefulSets give each replica its own persistent storage.** Through `volumeClaimTemplates`, each pod in a StatefulSet gets a dedicated PVC that follows it across restarts and rescheduling.
+6. **StatefulSets dão a cada réplica seu próprio armazenamento persistente.** Através de `volumeClaimTemplates`, cada pod em um StatefulSet recebe um PVC dedicado que o segue através de reinícios e reagendamentos.
 
-7. **Reclaim policies determine what happens to data after PVCs are deleted.** Use `Retain` for data you can't afford to lose, `Delete` for ephemeral storage that should be cleaned up automatically.
+7. **Políticas de recuperação determinam o que acontece com dados após PVCs serem deletados.** Use `Retain` para dados que você não pode perder, `Delete` para armazenamento efêmero que deve ser limpo automaticamente.
 
 ---
 
-## Further Reading
+## Leitura Complementar
 
 - [Volumes](https://kubernetes.io/docs/concepts/storage/volumes/)
 - [Persistent Volumes](https://kubernetes.io/docs/concepts/storage/persistent-volumes/)
@@ -676,5 +676,5 @@ rm -f emptydir-pod.yaml pv-demo.yaml pv-writer.yaml dynamic-pvc.yaml statefulset
 
 ---
 
-**Previous:** [Chapter 7 — Networking](07-networking.md)
-**Next:** [Chapter 9 — Configuration and Secrets](09-configuration-and-secrets.md)
+**Anterior:** [Capítulo 7 — Rede](07-networking.md)
+**Próximo:** [Capítulo 9 — Configuração e Secrets](09-configuration-and-secrets.md)

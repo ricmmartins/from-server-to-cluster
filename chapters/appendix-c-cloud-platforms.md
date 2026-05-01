@@ -1,55 +1,55 @@
-# Appendix C: Cloud Platform Comparison
+# Apêndice C: Comparação de Plataformas Cloud
 
-*A practical guide to choosing and using managed Kubernetes across major cloud providers.*
-
----
-
-## Why Managed Kubernetes?
-
-Running Kubernetes yourself means operating etcd, the API server, controller-manager, and scheduler — all of which must be highly available, patched, and backed up. Managed services eliminate that operational overhead:
-
-- **Control plane managed for you** — the provider handles upgrades, patching, HA, and etcd backups.
-- **SLA-backed availability** — financially backed uptime guarantees (typically 99.5%–99.95%).
-- **Deep integrations** — IAM, networking, storage, monitoring, and marketplace services work out of the box.
-- **Faster time to production** — spin up a production-grade cluster in minutes, not days.
-
-You still manage your workloads, node pools, networking policies, and application-level concerns — but the undifferentiated heavy lifting of the control plane is off your plate.
+*Um guia prático para escolher e usar Kubernetes gerenciado nos principais provedores de cloud.*
 
 ---
 
-## Quick Comparison Table
+## Por que Kubernetes Gerenciado?
 
-| Feature | AKS (Azure) | EKS (AWS) | GKE (Google Cloud) |
+Executar Kubernetes por conta própria significa operar etcd, o API server, controller-manager e scheduler — todos os quais devem ter alta disponibilidade, patches aplicados e backups. Serviços gerenciados eliminam essa sobrecarga operacional:
+
+- **Control plane gerenciado para você** — o provedor cuida de upgrades, patches, HA e backups do etcd.
+- **Disponibilidade com SLA** — garantias de uptime com respaldo financeiro (tipicamente 99,5%–99,95%).
+- **Integrações profundas** — IAM, rede, armazenamento, monitoramento e serviços de marketplace funcionam nativamente.
+- **Tempo mais rápido para produção** — crie um cluster de nível produção em minutos, não em dias.
+
+Você ainda gerencia suas cargas de trabalho, node pools, políticas de rede e questões no nível da aplicação — mas o trabalho pesado indiferenciado do control plane sai da sua responsabilidade.
+
+---
+
+## Tabela de Comparação Rápida
+
+| Recurso | AKS (Azure) | EKS (AWS) | GKE (Google Cloud) |
 |---------|-------------|-----------|---------------------|
-| **CLI tool** | `az aks` | `eksctl` / `aws eks` | `gcloud container clusters` |
-| **Control plane cost** | Free | ~$73/month ($0.10/hr) | Standard: $0.10/hr; Autopilot: $0.10/hr (compute billed per pod) |
-| **Default CNI** | Azure CNI Overlay | AWS VPC CNI | VPC-native (alias IPs) |
-| **Default load balancer** | Azure Load Balancer | AWS Network Load Balancer | Google Cloud Load Balancer |
-| **Managed Ingress** | Application Gateway for Containers | AWS ALB Ingress Controller | GKE Gateway Controller |
-| **Identity/Workload Identity** | Entra ID Workload Identity | IAM Roles for Service Accounts (IRSA) / Pod Identity | Workload Identity Federation |
-| **Secrets integration** | Azure Key Vault CSI driver | AWS Secrets Manager CSI driver | Secret Manager CSI driver |
-| **Monitoring** | Azure Monitor Container Insights | Amazon CloudWatch Container Insights | Google Cloud Monitoring + GKE dashboards |
-| **Node OS options** | Azure Linux, Ubuntu | Amazon Linux 2023, Bottlerocket, Ubuntu | Container-Optimized OS, Ubuntu |
-| **Autopilot/serverless mode** | AKS Automatic | EKS Auto Mode | GKE Autopilot |
-| **Max pods per node (default)** | 250 (Azure CNI Overlay) | Varies by instance type (17–110; 110 with prefix delegation) | 110 |
-| **Version support policy** | N-2 (current + 2 prior minors) | 14 months standard + 12 months extended | 3 most recent minors |
-| **Supported K8s versions (mid-2025)** | 1.30 – 1.32 | 1.30 – 1.32 (1.29 on extended) | 1.30 – 1.32 |
-| **Cluster autoscaler** | Cluster Autoscaler / Karpenter (preview) | Karpenter (recommended) / Cluster Autoscaler | GKE Autoscaler (built-in) / Karpenter (preview) |
+| **Ferramenta CLI** | `az aks` | `eksctl` / `aws eks` | `gcloud container clusters` |
+| **Custo do control plane** | Gratuito | ~$73/mês ($0,10/hr) | Standard: $0,10/hr; Autopilot: $0,10/hr (computação cobrada por pod) |
+| **CNI padrão** | Azure CNI Overlay | AWS VPC CNI | VPC-native (alias IPs) |
+| **Load balancer padrão** | Azure Load Balancer | AWS Network Load Balancer | Google Cloud Load Balancer |
+| **Ingress gerenciado** | Application Gateway for Containers | AWS ALB Ingress Controller | GKE Gateway Controller |
+| **Identidade/Workload Identity** | Entra ID Workload Identity | IAM Roles for Service Accounts (IRSA) / Pod Identity | Workload Identity Federation |
+| **Integração de secrets** | Azure Key Vault CSI driver | AWS Secrets Manager CSI driver | Secret Manager CSI driver |
+| **Monitoramento** | Azure Monitor Container Insights | Amazon CloudWatch Container Insights | Google Cloud Monitoring + dashboards GKE |
+| **Opções de SO dos nós** | Azure Linux, Ubuntu | Amazon Linux 2023, Bottlerocket, Ubuntu | Container-Optimized OS, Ubuntu |
+| **Modo autopilot/serverless** | AKS Automatic | EKS Auto Mode | GKE Autopilot |
+| **Máx. pods por nó (padrão)** | 250 (Azure CNI Overlay) | Varia por tipo de instância (17–110; 110 com prefix delegation) | 110 |
+| **Política de suporte de versão** | N-2 (atual + 2 minors anteriores) | 14 meses padrão + 12 meses estendido | 3 minors mais recentes |
+| **Versões K8s suportadas (meados 2025)** | 1.30 – 1.32 | 1.30 – 1.32 (1.29 no estendido) | 1.30 – 1.32 |
+| **Cluster autoscaler** | Cluster Autoscaler / Karpenter (preview) | Karpenter (recomendado) / Cluster Autoscaler | GKE Autoscaler (nativo) / Karpenter (preview) |
 
 ---
 
-## Cluster Creation
+## Criação de Cluster
 
 ### Azure (AKS)
 
 ```bash
-# Install/update Azure CLI
+# Instalar/atualizar Azure CLI
 az upgrade
 
-# Create a resource group
+# Criar um resource group
 az group create --name myResourceGroup --location eastus
 
-# Create an AKS cluster
+# Criar um cluster AKS
 az aks create \
   --resource-group myResourceGroup \
   --name myAKSCluster \
@@ -60,23 +60,23 @@ az aks create \
   --enable-managed-identity \
   --generate-ssh-keys
 
-# Get credentials for kubectl
+# Obter credenciais para kubectl
 az aks get-credentials --resource-group myResourceGroup --name myAKSCluster
 
-# Verify connectivity
+# Verificar conectividade
 kubectl get nodes
 ```
 
-**Key options:**
-- `--enable-addons monitoring` — enable Container Insights at creation.
-- `--os-sku AzureLinux` — use Azure Linux (recommended for new clusters).
-- `--enable-oidc-issuer --enable-workload-identity` — enable Workload Identity.
+**Opções principais:**
+- `--enable-addons monitoring` — habilitar Container Insights na criação.
+- `--os-sku AzureLinux` — usar Azure Linux (recomendado para novos clusters).
+- `--enable-oidc-issuer --enable-workload-identity` — habilitar Workload Identity.
 
 ### AWS (EKS)
 
 ```bash
-# Install eksctl (https://eksctl.io)
-# Create a cluster with managed node group
+# Instalar eksctl (https://eksctl.io)
+# Criar um cluster com managed node group
 eksctl create cluster \
   --name myEKSCluster \
   --version 1.32 \
@@ -88,11 +88,11 @@ eksctl create cluster \
   --nodes-max 5 \
   --managed
 
-# eksctl automatically updates kubeconfig
+# eksctl atualiza automaticamente o kubeconfig
 kubectl get nodes
 ```
 
-**Alternative: AWS CLI only**
+**Alternativa: apenas AWS CLI**
 ```bash
 aws eks create-cluster \
   --name myEKSCluster \
@@ -100,7 +100,7 @@ aws eks create-cluster \
   --role-arn arn:aws:iam::ACCOUNT:role/eks-cluster-role \
   --resources-vpc-config subnetIds=subnet-xxx,subnet-yyy,securityGroupIds=sg-zzz
 
-# Then create a managed node group separately
+# Depois crie um managed node group separadamente
 aws eks create-nodegroup \
   --cluster-name myEKSCluster \
   --nodegroup-name linux-nodes \
@@ -113,7 +113,7 @@ aws eks create-nodegroup \
 ### GCP (GKE)
 
 ```bash
-# Standard cluster
+# Cluster Standard
 gcloud container clusters create myGKECluster \
   --region us-central1 \
   --num-nodes 3 \
@@ -122,13 +122,13 @@ gcloud container clusters create myGKECluster \
   --enable-ip-alias \
   --workload-pool=PROJECT_ID.svc.id.goog
 
-# Get credentials
+# Obter credenciais
 gcloud container clusters get-credentials myGKECluster --region us-central1
 
 kubectl get nodes
 ```
 
-**GKE Autopilot (recommended for most workloads):**
+**GKE Autopilot (recomendado para a maioria das cargas de trabalho):**
 ```bash
 gcloud container clusters create-auto myAutopilotCluster \
   --region us-central1 \
@@ -139,97 +139,97 @@ gcloud container clusters get-credentials myAutopilotCluster --region us-central
 
 ---
 
-## Storage
+## Armazenamento
 
-| Feature | AKS (Azure) | EKS (AWS) | GKE (Google Cloud) |
+| Recurso | AKS (Azure) | EKS (AWS) | GKE (Google Cloud) |
 |---------|-------------|-----------|---------------------|
-| **CSI driver (block)** | Azure Disk CSI (`disk.csi.azure.com`) | EBS CSI (`ebs.csi.aws.com`) | Persistent Disk CSI (`pd.csi.storage.gke.io`) |
-| **CSI driver (file/NFS)** | Azure Files CSI (`file.csi.azure.com`) | EFS CSI (`efs.csi.aws.com`) | Filestore CSI (`filestore.csi.storage.gke.io`) |
-| **Default StorageClass** | `managed-csi` (Azure Disk LRS) | `gp3` (EBS gp3) | `standard-rwo` (PD balanced) |
-| **Premium storage class** | `managed-csi-premium` (Premium SSD) | `io2` (Provisioned IOPS) | `premium-rwo` (PD SSD) |
-| **ReadWriteMany support** | Azure Files (SMB/NFS) | EFS (NFS) | Filestore (NFS) |
-| **Volume snapshots** | Supported (Azure Disk CSI) | Supported (EBS CSI) | Supported (PD CSI) |
-| **Volume expansion** | Online resize supported | Online resize supported | Online resize supported |
-| **Max volumes per node** | ~64 (depends on VM size) | Varies by instance type (EBS limits) | 128 PDs per node |
+| **Driver CSI (bloco)** | Azure Disk CSI (`disk.csi.azure.com`) | EBS CSI (`ebs.csi.aws.com`) | Persistent Disk CSI (`pd.csi.storage.gke.io`) |
+| **Driver CSI (arquivo/NFS)** | Azure Files CSI (`file.csi.azure.com`) | EFS CSI (`efs.csi.aws.com`) | Filestore CSI (`filestore.csi.storage.gke.io`) |
+| **StorageClass padrão** | `managed-csi` (Azure Disk LRS) | `gp3` (EBS gp3) | `standard-rwo` (PD balanced) |
+| **Storage class premium** | `managed-csi-premium` (Premium SSD) | `io2` (Provisioned IOPS) | `premium-rwo` (PD SSD) |
+| **Suporte ReadWriteMany** | Azure Files (SMB/NFS) | EFS (NFS) | Filestore (NFS) |
+| **Volume snapshots** | Suportado (Azure Disk CSI) | Suportado (EBS CSI) | Suportado (PD CSI) |
+| **Expansão de volume** | Redimensionamento online suportado | Redimensionamento online suportado | Redimensionamento online suportado |
+| **Máx. volumes por nó** | ~64 (depende do tamanho da VM) | Varia por tipo de instância (limites EBS) | 128 PDs por nó |
 
 ---
 
-## Networking
+## Rede
 
-| Feature | AKS (Azure) | EKS (AWS) | GKE (Google Cloud) |
+| Recurso | AKS (Azure) | EKS (AWS) | GKE (Google Cloud) |
 |---------|-------------|-----------|---------------------|
-| **Default CNI** | Azure CNI Overlay | AWS VPC CNI | VPC-native (alias IPs) |
-| **Alternative CNI** | Azure CNI + Cilium (powered by Cilium) | Calico, Cilium | Calico (for network policy), Cilium (via Dataplane V2) |
-| **Pod networking** | Overlay CIDR (separate from VNet) | Flat VPC IPs (ENI-based) | Alias IP ranges (secondary CIDRs) |
-| **Network policy engine** | Cilium (default in new clusters) / Calico | Calico / VPC CNI Network Policy | Dataplane V2 (Cilium-based, built-in) |
-| **L4 Load Balancer** | Azure Load Balancer (Standard) | Network Load Balancer (NLB) | Google Cloud TCP/UDP Load Balancer |
-| **L7 Ingress (managed)** | Application Gateway for Containers | AWS ALB (via Load Balancer Controller) | GKE Gateway Controller / Ingress for HTTP(S) |
-| **Gateway API support** | Supported (via App Gw for Containers) | Supported (via AWS Gateway API controller) | Native support (GKE Gateway Controller) |
+| **CNI padrão** | Azure CNI Overlay | AWS VPC CNI | VPC-native (alias IPs) |
+| **CNI alternativo** | Azure CNI + Cilium (powered by Cilium) | Calico, Cilium | Calico (para network policy), Cilium (via Dataplane V2) |
+| **Rede de Pods** | Overlay CIDR (separado da VNet) | IPs flat VPC (baseado em ENI) | Alias IP ranges (CIDRs secundários) |
+| **Engine de network policy** | Cilium (padrão em novos clusters) / Calico | Calico / VPC CNI Network Policy | Dataplane V2 (baseado em Cilium, nativo) |
+| **Load Balancer L4** | Azure Load Balancer (Standard) | Network Load Balancer (NLB) | Google Cloud TCP/UDP Load Balancer |
+| **Ingress L7 (gerenciado)** | Application Gateway for Containers | AWS ALB (via Load Balancer Controller) | GKE Gateway Controller / Ingress for HTTP(S) |
+| **Suporte a Gateway API** | Suportado (via App Gw for Containers) | Suportado (via AWS Gateway API controller) | Suporte nativo (GKE Gateway Controller) |
 | **Service mesh** | Istio-based service mesh (addon) | App Mesh / Istio on EKS | Managed Istio (Cloud Service Mesh) |
-| **Internal load balancer** | Annotation: `service.beta.kubernetes.io/azure-load-balancer-internal: "true"` | Annotation: `service.beta.kubernetes.io/aws-load-balancer-internal: "true"` | Annotation: `networking.gke.io/load-balancer-type: "Internal"` |
-| **DNS** | CoreDNS (default) | CoreDNS (default) | kube-dns / CoreDNS |
+| **Load balancer interno** | Annotation: `service.beta.kubernetes.io/azure-load-balancer-internal: "true"` | Annotation: `service.beta.kubernetes.io/aws-load-balancer-internal: "true"` | Annotation: `networking.gke.io/load-balancer-type: "Internal"` |
+| **DNS** | CoreDNS (padrão) | CoreDNS (padrão) | kube-dns / CoreDNS |
 
 ---
 
-## Security
+## Segurança
 
-| Feature | AKS (Azure) | EKS (AWS) | GKE (Google Cloud) |
+| Recurso | AKS (Azure) | EKS (AWS) | GKE (Google Cloud) |
 |---------|-------------|-----------|---------------------|
-| **Identity provider** | Microsoft Entra ID | AWS IAM | Google Cloud IAM |
-| **Workload-to-cloud auth** | Workload Identity (Entra ID federated tokens) | IRSA / EKS Pod Identity | Workload Identity Federation |
-| **RBAC integration** | Entra ID groups → K8s RBAC | IAM roles mapped to K8s RBAC via `aws-auth` ConfigMap or access entries | Google groups → K8s RBAC |
-| **Secrets management** | Azure Key Vault (Secrets Store CSI) | AWS Secrets Manager / SSM Parameter Store (CSI) | Secret Manager (CSI) |
-| **Image signing/verification** | Notation + Azure Policy | ECR image scanning + Sigstore | Binary Authorization |
-| **Pod Security** | Pod Security Admission (built-in) + Azure Policy | Pod Security Admission (built-in) | Pod Security Admission + GKE Policy Controller |
-| **Node security** | Azure Linux / Mariner (hardened) | Bottlerocket (hardened, immutable) | Container-Optimized OS (hardened, minimal) |
-| **Encryption at rest** | Etcd encrypted by default; BYOK via Azure Key Vault | Etcd encrypted by default; BYOK via KMS envelope encryption | Etcd encrypted by default; BYOK via Cloud KMS |
-| **Private cluster** | Private cluster (API server on private endpoint) | Private endpoint for API server | Private cluster (VPC-internal control plane) |
+| **Provedor de identidade** | Microsoft Entra ID | AWS IAM | Google Cloud IAM |
+| **Autenticação workload-para-cloud** | Workload Identity (tokens federados Entra ID) | IRSA / EKS Pod Identity | Workload Identity Federation |
+| **Integração RBAC** | Grupos Entra ID → K8s RBAC | IAM roles mapeadas para K8s RBAC via ConfigMap `aws-auth` ou access entries | Grupos Google → K8s RBAC |
+| **Gerenciamento de secrets** | Azure Key Vault (Secrets Store CSI) | AWS Secrets Manager / SSM Parameter Store (CSI) | Secret Manager (CSI) |
+| **Assinatura/verificação de imagens** | Notation + Azure Policy | ECR image scanning + Sigstore | Binary Authorization |
+| **Segurança de Pod** | Pod Security Admission (nativo) + Azure Policy | Pod Security Admission (nativo) | Pod Security Admission + GKE Policy Controller |
+| **Segurança dos nós** | Azure Linux / Mariner (hardened) | Bottlerocket (hardened, imutável) | Container-Optimized OS (hardened, mínimo) |
+| **Criptografia em repouso** | Etcd criptografado por padrão; BYOK via Azure Key Vault | Etcd criptografado por padrão; BYOK via KMS envelope encryption | Etcd criptografado por padrão; BYOK via Cloud KMS |
+| **Cluster privado** | Private cluster (API server em private endpoint) | Private endpoint para API server | Private cluster (control plane interno à VPC) |
 
 ---
 
-## Monitoring
+## Monitoramento
 
-| Feature | AKS (Azure) | EKS (AWS) | GKE (Google Cloud) |
+| Recurso | AKS (Azure) | EKS (AWS) | GKE (Google Cloud) |
 |---------|-------------|-----------|---------------------|
-| **Native monitoring** | Azure Monitor Container Insights | Amazon CloudWatch Container Insights | Google Cloud Monitoring (GKE dashboards) |
-| **Metrics collection** | Managed Prometheus (Azure Monitor) | Amazon Managed Service for Prometheus | Google Cloud Managed Service for Prometheus |
-| **Log aggregation** | Azure Monitor Logs (Log Analytics) | CloudWatch Logs + FluentBit | Cloud Logging |
-| **Dashboards** | Azure Monitor workbooks + Grafana (managed) | CloudWatch dashboards + Amazon Managed Grafana | Cloud Monitoring dashboards + Google Cloud Managed Grafana |
-| **Alerting** | Azure Monitor alerts | CloudWatch Alarms + SNS | Cloud Monitoring alerting policies |
-| **Tracing** | Azure Monitor Application Insights | AWS X-Ray | Cloud Trace |
-| **Cost analysis** | AKS cost analysis (built-in) | AWS Cost Explorer + Kubecost | GKE cost allocation (built-in) |
-| **Prometheus-compatible** | Yes (Azure Managed Prometheus) | Yes (Amazon Managed Prometheus - AMP) | Yes (Google Managed Prometheus - GMP) |
+| **Monitoramento nativo** | Azure Monitor Container Insights | Amazon CloudWatch Container Insights | Google Cloud Monitoring (dashboards GKE) |
+| **Coleta de métricas** | Managed Prometheus (Azure Monitor) | Amazon Managed Service for Prometheus | Google Cloud Managed Service for Prometheus |
+| **Agregação de logs** | Azure Monitor Logs (Log Analytics) | CloudWatch Logs + FluentBit | Cloud Logging |
+| **Dashboards** | Azure Monitor workbooks + Grafana (gerenciado) | CloudWatch dashboards + Amazon Managed Grafana | Cloud Monitoring dashboards + Google Cloud Managed Grafana |
+| **Alertas** | Azure Monitor alerts | CloudWatch Alarms + SNS | Cloud Monitoring alerting policies |
+| **Rastreamento** | Azure Monitor Application Insights | AWS X-Ray | Cloud Trace |
+| **Análise de custos** | AKS cost analysis (nativo) | AWS Cost Explorer + Kubecost | GKE cost allocation (nativo) |
+| **Compatível com Prometheus** | Sim (Azure Managed Prometheus) | Sim (Amazon Managed Prometheus - AMP) | Sim (Google Managed Prometheus - GMP) |
 
 ---
 
-## When to Choose Which
+## Quando Escolher Qual
 
-### Decision Matrix
+### Matriz de Decisão
 
-| Priority | Best Choice | Why |
+| Prioridade | Melhor Escolha | Por quê |
 |----------|------------|-----|
-| **Lowest cost** | AKS | Free control plane; competitive VM pricing; good free-tier tooling |
-| **Existing AWS ecosystem** | EKS | Native integration with IAM, VPC, ALB, CloudWatch, and 200+ AWS services |
-| **Existing Azure ecosystem** | AKS | Native integration with Entra ID, Azure DevOps, App Gateway, Azure Monitor |
-| **Existing GCP ecosystem** | GKE | Native integration with Cloud IAM, Cloud Run, Cloud Build, BigQuery |
-| **Kubernetes-native experience** | GKE | Google authored Kubernetes; GKE often has the newest features first |
-| **Simplest operations (serverless K8s)** | GKE Autopilot | No node management; pay-per-pod; auto-security; built-in best practices |
-| **Hybrid/multi-cloud** | AKS (Azure Arc) or EKS Anywhere | Arc supports K8s anywhere; EKS Anywhere runs on-premises |
-| **Windows containers** | AKS | Most mature Windows node pool support; mixed Linux/Windows clusters |
-| **AI/ML workloads (GPU)** | All three | All support GPU node pools; GKE has TPU; AKS has AMD MI300X; EKS has Inferentia/Trainium |
-| **Compliance-heavy industries** | All three | All have FedRAMP, HIPAA, SOC2; evaluate specific certifications needed |
-| **Team expertise** | Match existing cloud skills | The provider your team already knows will yield faster results |
+| **Menor custo** | AKS | Control plane gratuito; preços competitivos de VMs; boas ferramentas gratuitas |
+| **Ecossistema AWS existente** | EKS | Integração nativa com IAM, VPC, ALB, CloudWatch e mais de 200 serviços AWS |
+| **Ecossistema Azure existente** | AKS | Integração nativa com Entra ID, Azure DevOps, App Gateway, Azure Monitor |
+| **Ecossistema GCP existente** | GKE | Integração nativa com Cloud IAM, Cloud Run, Cloud Build, BigQuery |
+| **Experiência Kubernetes-nativa** | GKE | Google criou o Kubernetes; GKE frequentemente tem os recursos mais novos primeiro |
+| **Operações mais simples (K8s serverless)** | GKE Autopilot | Sem gerenciamento de nós; pagamento por pod; segurança automática; boas práticas embutidas |
+| **Híbrido/multi-cloud** | AKS (Azure Arc) ou EKS Anywhere | Arc suporta K8s em qualquer lugar; EKS Anywhere roda on-premises |
+| **Containers Windows** | AKS | Suporte mais maduro a node pools Windows; clusters mistos Linux/Windows |
+| **Cargas de trabalho AI/ML (GPU)** | Todos os três | Todos suportam node pools GPU; GKE tem TPU; AKS tem AMD MI300X; EKS tem Inferentia/Trainium |
+| **Indústrias com compliance rigoroso** | Todos os três | Todos possuem FedRAMP, HIPAA, SOC2; avalie certificações específicas necessárias |
+| **Expertise da equipe** | Corresponda às habilidades cloud existentes | O provedor que sua equipe já conhece trará resultados mais rápidos |
 
-### Cost Considerations Beyond the Control Plane
+### Considerações de Custo Além do Control Plane
 
-The control plane cost is a small fraction of the total bill. Budget for:
-- **Compute** (node VMs/instances) — typically 60–80% of the bill.
-- **Storage** (persistent disks, file shares) — varies by workload.
-- **Networking** (load balancers, NAT gateways, cross-AZ traffic, egress).
-- **Monitoring** (log ingestion, metrics storage, alerting).
+O custo do control plane é uma pequena fração da conta total. Planeje o orçamento para:
+- **Computação** (VMs/instâncias dos nós) — tipicamente 60–80% da conta.
+- **Armazenamento** (discos persistentes, file shares) — varia por carga de trabalho.
+- **Rede** (load balancers, NAT gateways, tráfego cross-AZ, egress).
+- **Monitoramento** (ingestão de logs, armazenamento de métricas, alertas).
 
-> **Tip:** All three providers offer committed-use discounts (Reserved Instances, Savings Plans, Committed Use Discounts) that can reduce compute costs by 30–60%.
+> **Dica:** Todos os três provedores oferecem descontos por compromisso de uso (Reserved Instances, Savings Plans, Committed Use Discounts) que podem reduzir custos de computação em 30–60%.
 
 ---
 
-*Navigation: [← Appendix B: kubectl Cheatsheet](appendix-b-cheatsheet.md)*
+*Navegação: [← Apêndice B: Referência Rápida do kubectl](appendix-b-cheatsheet.md)*
