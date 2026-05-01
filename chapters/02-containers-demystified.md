@@ -110,26 +110,21 @@ A Dockerfile is a recipe for building an image, layer by layer. Here are the key
 
 When you run `docker run nginx`, a surprising number of components are involved. Understanding the stack helps demystify what's actually happening:
 
-```
-┌──────────────────────────────────────────────────┐
-│  Docker CLI (docker)                             │
-│  You type commands here                          │
-├──────────────────────────────────────────────────┤
-│  Docker Daemon (dockerd)                         │
-│  Manages images, networks, volumes               │
-├──────────────────────────────────────────────────┤
-│  containerd                                      │
-│  High-level runtime: image management,           │
-│  container lifecycle, CRI for Kubernetes         │
-├──────────────────────────────────────────────────┤
-│  runc                                            │
-│  Low-level OCI runtime: actually calls           │
-│  clone(), sets up namespaces, cgroups, exec's    │
-│  the container process                           │
-├──────────────────────────────────────────────────┤
-│  Linux Kernel                                    │
-│  namespaces, cgroups, seccomp, capabilities      │
-└──────────────────────────────────────────────────┘
+```mermaid
+graph TD
+    A["🖥️ <b>Docker CLI</b> (docker)<br/>You type commands here"]
+    B["⚙️ <b>Docker Daemon</b> (dockerd)<br/>Manages images, networks, volumes"]
+    C["📦 <b>containerd</b><br/>High-level runtime: image management,<br/>container lifecycle, CRI for Kubernetes"]
+    D["🔧 <b>runc</b><br/>Low-level OCI runtime: actually calls<br/>clone(), sets up namespaces, cgroups,<br/>exec's the container process"]
+    E["🐧 <b>Linux Kernel</b><br/>namespaces, cgroups, seccomp, capabilities"]
+
+    A --> B --> C --> D --> E
+
+    style A fill:#1e40af,stroke:#3b82f6,color:#fff
+    style B fill:#1e3a5f,stroke:#3b82f6,color:#fff
+    style C fill:#14532d,stroke:#22c55e,color:#fff
+    style D fill:#713f12,stroke:#eab308,color:#fff
+    style E fill:#581c87,stroke:#a855f7,color:#fff
 ```
 
 Here's the key insight: **Kubernetes doesn't use Docker.** Since Kubernetes v1.24, Docker support (dockershim) was removed. Kubernetes talks directly to **containerd** via the Container Runtime Interface (CRI). containerd then uses **runc** to create the actual container process.
