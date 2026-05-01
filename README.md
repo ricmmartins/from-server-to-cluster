@@ -58,15 +58,18 @@ Cada capítulo começa com o que você já sabe, mapeia para o Kubernetes e hone
 
 Este livro faz parte de um caminho progressivo de aprendizado:
 
-```
-linuxhackathon.com          k8shackathon.com           ai4infra.com
-Fundamentos Linux     --->  Kubernetes Hackathon  ---> IA para Infraestrutura
-(20 desafios)               (20 desafios)              (IA + Cloud)
-        \                        |                      /
-         \                       |                     /
-          `----> Este Livro <---'                    /
-           "Do Servidor ao Cluster"                 /
-            (O PORQUÊ por trás do QUÊ)  -----------'
+```mermaid
+flowchart LR
+    A["🐧 Fundamentos Linux<br/>(20 desafios)"] -->|próximo| B["☸️ Kubernetes Hackathon<br/>(20 desafios)"]
+    B -->|próximo| C["🤖 IA para Infraestrutura<br/>(IA + Cloud)"]
+    A -.->|leitura complementar| D["📖 Este Livro<br/><b>Do Servidor ao Cluster</b><br/><i>O PORQUÊ por trás do QUÊ</i>"]
+    B -.->|leitura complementar| D
+    C -.->|leitura complementar| D
+
+    click A "https://linuxhackathon.com"
+    click B "https://k8shackathon.com"
+    click C "https://ai4infra.com"
+    click D "https://fromservertocluster.com"
 ```
 
 | Recurso | Formato | Foco |
