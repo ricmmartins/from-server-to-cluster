@@ -95,9 +95,9 @@ Linux FUNdamentals    --->  Kubernetes Hackathon  ---> AI for Infrastructure
 
 All labs are tested on **Kubernetes v1.32** with Kind. Cloud-specific examples use AKS, EKS, and GKE as variants.
 
-## Portuguese Content
+## 🇧🇷 Conteúdo em Português
 
-Looking for content in Portuguese? Visit [ricardomartins.com.br](https://ricardomartins.com.br) for the blog series adaptation.
+Looking for this book in Brazilian Portuguese? Check out the [`pt-br` branch](https://github.com/ricmmartins/from-server-to-cluster/tree/pt-br) for the fully translated version.
 
 ## About the Author
 
