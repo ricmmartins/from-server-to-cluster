@@ -60,16 +60,26 @@ Este livro faz parte de um caminho progressivo de aprendizado:
 
 ```mermaid
 flowchart LR
-    A["🐧 Fundamentos Linux<br/>(20 desafios)"] -->|próximo| B["☸️ Kubernetes Hackathon<br/>(20 desafios)"]
-    B -->|próximo| C["🤖 IA para Infraestrutura<br/>(IA + Cloud)"]
-    A -.->|leitura complementar| D["📖 Este Livro<br/><b>Do Servidor ao Cluster</b><br/><i>O PORQUÊ por trás do QUÊ</i>"]
-    B -.->|leitura complementar| D
-    C -.->|leitura complementar| D
+    A["🐧 <b>Fundamentos Linux</b><br/>20 desafios práticos<br/><i>linuxhackathon.com</i>"]
+    B["☸️ <b>Kubernetes Hackathon</b><br/>20 desafios práticos<br/><i>k8shackathon.com</i>"]
+    C["🤖 <b>IA para Infraestrutura</b><br/>IA + Cloud<br/><i>ai4infra.com</i>"]
+    D["📖 <b>Do Servidor ao Cluster</b><br/>O PORQUÊ por trás do QUÊ<br/><i>fromservertocluster.com</i>"]
 
-    click A "https://linuxhackathon.com"
-    click B "https://k8shackathon.com"
-    click C "https://ai4infra.com"
-    click D "https://fromservertocluster.com"
+    A ==> B ==> C
+    A -.-> D
+    B -.-> D
+    C -.-> D
+
+    classDef challenge fill:#2b5ea7,stroke:#1e4a8a,color:#fff,stroke-width:2px
+    classDef book fill:#1a7f37,stroke:#116329,color:#fff,stroke-width:3px
+
+    class A,B,C challenge
+    class D book
+
+    click A "https://linuxhackathon.com" _blank
+    click B "https://k8shackathon.com" _blank
+    click C "https://ai4infra.com" _blank
+    click D "https://fromservertocluster.com" _blank
 ```
 
 | Recurso | Formato | Foco |
