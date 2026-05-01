@@ -111,7 +111,7 @@ Todos os laboratórios foram testados no **Kubernetes v1.32** com Kind. Exemplos
 
 ## Conteúdo em Inglês
 
-Procurando a versão em inglês? Visite a [branch principal](https://github.com/ricmmartins/from-server-to-cluster).
+Procurando a versão em inglês? Visite a [branch `en-us`](https://github.com/ricmmartins/from-server-to-cluster/tree/en-us).
 
 ## Sobre o Autor
 
