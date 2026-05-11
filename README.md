@@ -60,27 +60,31 @@ Este livro faz parte de um caminho progressivo de aprendizado:
 
 ```mermaid
 flowchart TB
-    subgraph journey["🚀 Caminho Progressivo de Aprendizado"]
+    subgraph journey["🚀 Trilha de Aprendizado Progressiva"]
         direction LR
-        A["🐧 <b>Fundamentos Linux</b><br/>20 desafios práticos<br/><i>linuxhackathon.com</i>"] ==> B["☸️ <b>Kubernetes Hackathon</b><br/>20 desafios práticos<br/><i>k8shackathon.com</i>"] ==> C["🤖 <b>IA para Infraestrutura</b><br/>IA + Cloud<br/><i>ai4infra.com</i>"]
+        A["🐧 <b>Linux FUNdamentals</b><br/>20 desafios hands-on<br/><i>linuxhackathon.com</i>"] ==> B["☸️ <b>Kubernetes Hackathon</b><br/>20 desafios hands-on<br/><i>k8shackathon.com</i>"] ==> C["🤖 <b>AI for Infrastructure</b><br/>AI + Cloud<br/><i>ai4infra.com</i>"]
     end
 
     A -.->|leitura complementar| D
     B -.->|leitura complementar| D
     C -.->|leitura complementar| D
 
-    D["📖 <b>Do Servidor ao Cluster</b><br/>O PORQUÊ por trás do QUÊ<br/><i>fromservertocluster.com</i>"]
+    B -.->|aprofundamento Azure| E
+
+    D["📖 <b>From Server to Cluster</b><br/>O PORQUÊ por trás do QUÊ<br/><i>fromservertocluster.com</i>"]
+    E["☁️ <b>AKS Learning</b><br/>Do zero à produção no AKS<br/><i>aks-learning.github.io</i>"]
 
     classDef challenge fill:#2b5ea7,stroke:#1e4a8a,color:#fff,stroke-width:2px
     classDef book fill:#1a7f37,stroke:#116329,color:#fff,stroke-width:3px
 
-    class A,B,C challenge
+    class A,B,C,E challenge
     class D book
 
     click A "https://linuxhackathon.com" _blank
     click B "https://k8shackathon.com" _blank
     click C "https://ai4infra.com" _blank
     click D "https://fromservertocluster.com" _blank
+    click E "https://aks-learning.github.io" _blank
 ```
 
 | Recurso | Formato | Foco |
