@@ -69,18 +69,22 @@ flowchart TB
     B -.->|companion reading| D
     C -.->|companion reading| D
 
+    B -.->|Azure deep dive| E
+
     D["📖 <b>From Server to Cluster</b><br/>The WHY behind the WHAT<br/><i>fromservertocluster.com</i>"]
+    E["☁️ <b>AKS Learning</b><br/>Zero to production on AKS<br/><i>aks-learning.github.io</i>"]
 
     classDef challenge fill:#2b5ea7,stroke:#1e4a8a,color:#fff,stroke-width:2px
     classDef book fill:#1a7f37,stroke:#116329,color:#fff,stroke-width:3px
 
-    class A,B,C challenge
+    class A,B,C,E challenge
     class D book
 
     click A "https://linuxhackathon.com" _blank
     click B "https://k8shackathon.com" _blank
     click C "https://ai4infra.com" _blank
     click D "https://fromservertocluster.com" _blank
+    click E "https://aks-learning.github.io" _blank
 ```
 
 | Resource | Format | Focus |
