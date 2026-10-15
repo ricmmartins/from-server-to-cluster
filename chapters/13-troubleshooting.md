@@ -258,7 +258,7 @@ kubectl describe node <node> | grep -A 10 "Conditions"
 | `journalctl -xe` | `kubectl get events` | System-level events timeline |
 | `ps aux`, `top` | `kubectl top pods` | Resource usage |
 | `strace -p PID` | `kubectl debug` (ephemeral) | Deep container inspection |
-| `ss -tlnp` | `kubectl get svc,endpoints` | Network listeners and backends |
+| `ss -tlnp` | `kubectl get svc,endpointslices` | Service ports and discovered backends (not proof of a listening socket) |
 | `ping`, `curl`, `traceroute` | `kubectl exec -- wget/curl` | Network connectivity testing |
 | `dmesg`, `/var/log/syslog` | `kubectl describe node` | Node-level issues (OOM, disk) |
 | `df -h` | `kubectl describe node` Conditions | Disk pressure detection |
@@ -279,9 +279,13 @@ kubectl describe node <node> | grep -A 10 "Conditions"
 
 ### Prerequisites
 
+Use **Kind v0.31.0**, **kubectl v1.35.0**, and the Kubernetes **v1.35.0** image digest from the [Kind release](https://github.com/kubernetes-sigs/kind/releases/tag/v0.31.0). This fixed teaching baseline is not a production recommendation; choose the latest supported patch of your production minor. These Bash examples require a running Docker daemon with Linux containers/cgroup v2 (for example, through WSL2 on Windows), internet access, and capacity for three nodes. Confirm a disposable lab context. Scenario 5 intentionally disrupts a node; do not run it against shared infrastructure. Expected outputs are illustrative, not runtime test results.
+
 ```bash
 # Create a Kind cluster for troubleshooting practice
-kind create cluster --name troubleshooting-lab --config - <<EOF
+kind create cluster --name troubleshooting-lab \
+  --image kindest/node:v1.35.0@sha256:452d707d4862f52530247495d180205e029056831160e22870e37e3f6c1ac31f \
+  --config - <<EOF
 kind: Cluster
 apiVersion: kind.x-k8s.io/v1alpha4
 nodes:
@@ -511,17 +515,19 @@ The Service selector says `app: web-app-typo` but the pods have `app: web-app`.
 **Diagnose step by step:**
 
 ```bash
-# Step 1: Check pods are running
+# Step 1: Check pods and wait for readiness, not just Running
 kubectl get pods -l app=web-app
-# STATUS: Running (pods are fine!)
+kubectl rollout status deployment/web-app --timeout=120s
 
 # Step 2: Check the service
 kubectl get svc web-service
 # ClusterIP assigned — looks normal
 
-# Step 3: Check endpoints (THE KEY STEP)
-kubectl get endpoints web-service
-# ENDPOINTS: <none>  ← This is the problem!
+# Step 3: Inspect EndpointSlices and their readiness conditions
+kubectl get endpointslices -l kubernetes.io/service-name=web-service
+kubectl get endpointslices -l kubernetes.io/service-name=web-service -o yaml
+# Expect no backend addresses for this deliberately mismatched selector.
+# Also inspect endpoints[].conditions.ready if addresses are present.
 
 # Step 4: Compare labels
 kubectl get pods --show-labels | grep web-app
@@ -537,6 +543,8 @@ kubectl run debug-curl --image=busybox:1.36 --rm -it --restart=Never -- wget -qO
 
 **Apply the fix:**
 
+In **this scenario**, comparing labels establishes a selector mismatch. Empty or unusable backends do **not** always mean a bad selector: matching Pods may be absent, still Pending, or failing readiness. A Service **without a selector** does not get automatically managed EndpointSlices; its operator must provide them (for example, for an external backend). Inspect Service type, namespace, selectors, Pod existence/readiness, and EndpointSlice addresses/ports/conditions before changing labels. With `publishNotReadyAddresses`, readiness semantics also differ. Prefer EndpointSlice over the legacy Endpoints API, deprecated since Kubernetes 1.33; see [Debug Services](https://kubernetes.io/docs/tasks/debug/debug-application/debug-service/) and [Services without selectors](https://kubernetes.io/docs/concepts/services-networking/service/#services-without-selectors).
+
 ```bash
 # Fix: correct the selector
 kubectl patch svc web-service --type='json' -p='[
@@ -547,9 +555,10 @@ kubectl patch svc web-service --type='json' -p='[
 **Verify resolution:**
 
 ```bash
-# Endpoints should now show pod IPs
-kubectl get endpoints web-service
-# ENDPOINTS: 10.244.x.x:80,10.244.y.y:80
+# EndpointSlices should now show pod IPs and port 80
+kubectl get endpointslices -l kubernetes.io/service-name=web-service
+kubectl get endpointslices -l kubernetes.io/service-name=web-service -o yaml
+# Verify addresses and endpoints[].conditions.ready, then test actual traffic.
 
 # Test connectivity
 kubectl run debug-curl --image=busybox:1.36 --rm -it --restart=Never -- wget -qO- --timeout=3 http://web-service
@@ -771,7 +780,7 @@ kind delete cluster --name troubleshooting-lab
 
 2. **Use `kubectl logs -p` for crashed containers.** The current container might have no logs yet (it just restarted). The previous container has the crash output you need.
 
-3. **Empty endpoints = selector mismatch.** When a Service can't reach pods, check `kubectl get endpoints <svc>`. If it's empty, the Service selector doesn't match any pod labels.
+3. **Missing ready backends have several causes.** Inspect `kubectl get endpointslices -l kubernetes.io/service-name=<svc> -o yaml`, Service selectors, and Pod readiness/existence. Selector mismatch is one cause, not the only one; selectorless Services require separately managed EndpointSlices.
 
 4. **Pod status tells you where to look.** Pending = scheduling problem. ImagePullBackOff = image/registry problem. CrashLoopBackOff = application problem. OOMKilled = memory problem. Each status points to a different investigation path.
 

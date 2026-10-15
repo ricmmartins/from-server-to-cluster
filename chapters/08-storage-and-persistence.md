@@ -293,11 +293,18 @@ Snapshots require a CSI driver that supports them — not all do. They're implem
 
 ### Prerequisites
 
-Make sure you have a Kind cluster running. If not, create one:
+Use a **dedicated, single-node** Kind cluster for every lab in this chapter. Lab 2 uses `hostPath`, which has no cross-node data portability: reusing a multi-node cluster could silently read a different node's directory. Do not reuse a cluster from another chapter. If `storage-lab` already exists, stop and inspect it; delete and recreate it only after accepting the loss of its lab data.
+
+The teaching snapshot uses Kind **v0.31.0**, kubectl **v1.35.0**, and Kubernetes **v1.35.0**. The `.0` snapshot is for reproducible labs; production should use the latest supported patch of its chosen minor.
 
 ```bash
-kind create cluster --name storage-lab
+kind create cluster --name storage-lab --image kindest/node:v1.35.0@sha256:452d707d4862f52530247495d180205e029056831160e22870e37e3f6c1ac31f
+kubectl config use-context kind-storage-lab
+kubectl wait --for=condition=Ready nodes --all --timeout=120s
+kubectl get nodes
 ```
+
+Expect exactly one node, `storage-lab-control-plane`. Here, “host” means that Kind node container, not your workstation. Data survives Pod recreation, not deletion of the Kind cluster.
 
 ### Lab 1: emptyDir — Shared Temporary Storage
 
@@ -359,7 +366,7 @@ kubectl delete pod emptydir-demo
 
 ### Lab 2: PersistentVolume and PersistentVolumeClaim — Manual Provisioning
 
-Create a PV backed by `hostPath` (suitable for Kind local testing), then claim it with a PVC.
+Create a PV backed by `hostPath` (only on the dedicated single-node cluster required above), then claim it with a PVC. For multi-node local storage, use a `local` PV with required node affinity instead of this example.
 
 Save this as `pv-demo.yaml`:
 
@@ -376,6 +383,7 @@ spec:
   persistentVolumeReclaimPolicy: Retain
   hostPath:
     path: /mnt/data
+    type: DirectoryOrCreate
 ---
 apiVersion: v1
 kind: PersistentVolumeClaim
@@ -414,7 +422,7 @@ spec:
   containers:
   - name: writer
     image: busybox:1.36
-    command: ["sh", "-c", "echo 'Data written at '$(date) > /data/message.txt && sleep 3600"]
+    command: ["sh", "-c", "if ! test -e /data/message.txt; then echo \"Data written at $(date)\" > /data/message.txt; fi; sleep 3600"]
     volumeMounts:
     - name: persistent-storage
       mountPath: /data
@@ -586,8 +594,10 @@ spec:
         - sh
         - -c
         - |
-          echo "I am $(hostname), writing my identity" > /data/identity.txt
-          date >> /data/identity.txt
+          if ! test -e /data/identity.txt; then
+            echo "I am $(hostname), writing my identity" > /data/identity.txt
+            date >> /data/identity.txt
+          fi
           sleep 3600
         volumeMounts:
         - name: data
@@ -631,7 +641,7 @@ kubectl delete svc stateful-svc
 kubectl delete pvc data-stateful-demo-0 data-stateful-demo-1 data-stateful-demo-2
 ```
 
-**What just happened:** The StatefulSet created three pods (stateful-demo-0, -1, -2), each with its own PVC (data-stateful-demo-0, -1, -2). When you deleted pod -1, the StatefulSet recreated it with the same name and reattached it to the same PVC. The data survived. This is how databases run on Kubernetes — each replica has its own persistent identity and storage.
+**What just happened:** The StatefulSet created three pods (stateful-demo-0, -1, -2), each with its own PVC (data-stateful-demo-0, -1, -2). When you deleted pod -1, the StatefulSet recreated it with the same name and reattached it to the same PVC. The `test -e` guard leaves the original identity and timestamp unchanged, proving that existing data was read rather than rewritten at startup. This provides database identity and storage primitives, not automatic database replication or failover.
 
 ### Clean Up
 
