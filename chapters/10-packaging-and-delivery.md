@@ -77,7 +77,7 @@ E o `values.yaml` fornece os valores padrão:
 replicaCount: 1
 image:
   repository: nginx
-  tag: "1.27"
+  tag: "1.30.6-alpine"
 service:
   port: 80
   type: ClusterIP
@@ -91,41 +91,43 @@ Charts são distribuídos através de repositórios — servidores HTTP (ou regi
 
 | Comando APT | Equivalente Helm |
 |-------------|----------------|
-| `add-apt-repository ppa:...` | `helm repo add bitnami https://charts.bitnami.com/bitnami` |
+| `add-apt-repository ppa:...` | `helm repo add traefik https://traefik.github.io/charts` |
 | `apt update` | `helm repo update` |
-| `apt search nginx` | `helm search repo nginx` |
-| `apt show nginx` | `helm show chart bitnami/nginx` |
-| `apt install nginx` | `helm install my-nginx bitnami/nginx` |
+| `apt search <package>` | `helm search repo <chart>` |
+| `apt show <package>` | `helm show chart <repository>/<chart> --version <chart-version>` |
+| `apt install <package>` | `helm install <release> <repository>/<chart> --version <chart-version>` |
 
 O [Artifact Hub](https://artifacthub.io/) é o diretório público para encontrar charts Helm — pense nele como o equivalente Kubernetes do `packages.ubuntu.com` ou `hub.docker.com` para charts. Ele indexa charts de múltiplos repositórios e fornece busca, documentação e histórico de versões.
+
+Uma entrada no repositório não garante que as imagens de containers de um chart continuem recebendo manutenção ou estejam acessíveis publicamente. Inspecione a procedência tanto do chart quanto das imagens, fixe suas versões e confira as políticas de suporte. Os laboratórios abaixo usam deliberadamente um chart local autocontido e uma imagem oficial do NGINX, em vez de depender de um catálogo externo de aplicações.
 
 ### Comandos de Ciclo de Vida do Helm
 
 O fluxo de trabalho principal:
 
 ```bash
-# Instalar um chart (cria uma release)
+# Install a chart (creates a release)
 helm install <release-name> <chart> [--set key=value] [--values custom.yaml]
 
-# Listar releases instaladas
+# List installed releases
 helm list
 
-# Mostrar valores atuais de uma release
+# Show current values of a release
 helm get values <release-name>
 
-# Atualizar uma release (nova revision)
+# Upgrade a release (new revision)
 helm upgrade <release-name> <chart> [--set key=value]
 
-# Rollback para uma revision anterior
+# Rollback to a previous revision
 helm rollback <release-name> <revision-number>
 
-# Ver histórico da release
+# View release history
 helm history <release-name>
 
-# Desinstalar uma release
+# Uninstall a release
 helm uninstall <release-name>
 
-# Renderizar templates localmente sem instalar (ótimo para debug)
+# Render templates locally without installing (great for debugging)
 helm template <release-name> <chart> [--set key=value]
 ```
 
@@ -215,16 +217,16 @@ namespace: production
 Compilar e aplicar:
 
 ```bash
-# Pré-visualizar o que o overlay de dev produz
+# Preview what dev overlay produces
 kubectl kustomize overlays/dev
 
-# Pré-visualizar o que o overlay de prod produz
+# Preview what prod overlay produces
 kubectl kustomize overlays/prod
 
-# Aplicar o overlay de dev
+# Apply the dev overlay
 kubectl apply -k overlays/dev
 
-# Aplicar o overlay de prod
+# Apply the prod overlay
 kubectl apply -k overlays/prod
 ```
 
@@ -236,7 +238,7 @@ A flag `-k` está integrada no kubectl — o Kustomize é integrado diretamente,
 |----------------|-------------|
 | `namePrefix` / `nameSuffix` | Adicionar prefixo/sufixo a todos os nomes de recursos |
 | `namespace` | Sobrescrever o namespace para todos os recursos |
-| `commonLabels` | Adicionar labels a todos os recursos e selectors |
+| `labels` | Adicionar labels; `includeSelectors: true` também atualiza seletores e templates de Pods |
 | `commonAnnotations` | Adicionar annotations a todos os recursos |
 | `images` | Sobrescrever nomes e tags de imagens sem patching |
 | `patches` | Strategic merge patches ou JSON patches |
@@ -308,7 +310,7 @@ Desenvolvedor → kubectl apply → Cluster
 Desenvolvedor → git push → Repositório Git ← Controlador GitOps → Cluster
 ```
 
-Um controlador GitOps (como [ArgoCD](https://argo-cd.readthedocs.io/en/stable/) ou [Flux](https://fluxcd.io/)) roda dentro do cluster e observa continuamente um repositório Git. Quando detecta uma mudança (novo commit, valores atualizados), ele sincroniza o cluster para corresponder ao estado do Git. Se alguém fizer uma mudança manual com `kubectl`, o controlador reverte — o Git sempre vence.
+Um controlador GitOps (como [ArgoCD](https://argo-cd.readthedocs.io/en/stable/) ou [Flux](https://fluxcd.io/)) roda dentro do cluster e reconcilia as fontes declaradas com o estado do cluster conforme a política configurada. Detectar drift não significa necessariamente aplicar a correção automaticamente: a sincronização pode ser manual, estar suspensa ou depender de aprovação. No Argo CD, a **sincronização automática** aplica novas revisões desejadas, **`selfHeal: true`** permite a correção automática de drift no estado em execução e **`prune: true`** permite excluir automaticamente recursos rastreados que foram removidos do Git. Self-healing e pruning não são padrões incondicionais. Revise permissões, exclusões, janelas de sincronização e proteções contra exclusão antes de habilitá-los.
 
 Pense nisso como `ansible-pull` ou `puppet agent` para o Kubernetes — o sistema puxa sua configuração de uma fonte central em vez de ter um administrador empurrando.
 
@@ -318,7 +320,7 @@ Pense nisso como `ansible-pull` ou `puppet agent` para o Kubernetes — o sistem
 |---------|-----|
 | **Rastro de auditoria** | Toda mudança é um commit Git com autor, timestamp e mensagem |
 | **Reprodutibilidade** | O estado do cluster é definido em código, não no histórico do terminal de alguém |
-| **Rollback** | `git revert` faz rollback do cluster, não apenas do código |
+| **Rollback** | `git revert` altera o estado desejado; uma sincronização autorizada o aplica (isso não restaura dados do banco) |
 | **Segurança** | Desenvolvedores fazem push para o Git; não precisam de acesso `kubectl` ao cluster |
 | **Detecção de drift** | O controlador alerta quando o estado do cluster difere do Git |
 
@@ -348,7 +350,7 @@ Não vamos construir um pipeline GitOps completo neste capítulo — esse é um 
 >
 > - **Kustomize não "instala" nada.** Não existe `kustomize install` ou `kustomize uninstall`. Kustomize é uma ferramenta de build de YAML — ele transforma manifestos e produz YAML puro. Você ainda usa `kubectl apply` para criar recursos e `kubectl delete` para removê-los. Ele não tem conceito de releases, revisions ou rollback. Pense nele como um pré-processador, não um gerenciador de pacotes.
 >
-> - **GitOps inverte o modelo de deploy.** O deploy tradicional no Linux é baseado em push: você faz SSH, executa comandos, e o sistema muda. GitOps é baseado em pull: você faz push para o Git, e um controlador dentro do cluster detecta a mudança e a aplica. Se você fizer uma mudança manual com `kubectl edit`, o controlador GitOps vai revertê-la para corresponder ao Git. Esta é uma relação fundamentalmente diferente entre o operador e o sistema — o controlador é o operador, não você.
+> - **GitOps inverte o modelo de deploy.** O deploy tradicional no Linux é baseado em push: você faz SSH, executa comandos, e o sistema muda. GitOps é baseado em pull: um controlador detecta mudanças e reconcilia conforme a política. Uma alteração manual com `kubectl edit` pode ser apenas relatada como drift, em vez de ser imediatamente revertida; a correção automática exige a política adequada de self-healing/reconciliação. A exclusão de recursos também depende da política de pruning.
 
 ---
 
@@ -356,70 +358,141 @@ Não vamos construir um pipeline GitOps completo neste capítulo — esse é um 
 
 ### Pré-requisitos
 
-Certifique-se de que o Helm está instalado:
+Use **Helm v3.19.0** neste laboratório. Baixe o arquivo para seu sistema operacional e arquitetura na [versão oficial v3.19.0](https://github.com/helm/helm/releases/tag/v3.19.0), confira o checksum publicado e extraia o binário. Não use um instalador “latest” sem versão fixada.
 
 ```bash
-# Verificar se o Helm está instalado
+# Confirm the pinned lab version
 helm version
-
-# Se não estiver instalado, veja https://helm.sh/docs/intro/install/
-# No macOS: brew install helm
-# No Linux: curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
-# No Windows: choco install kubernetes-helm
+# Expected version: v3.19.0
 ```
 
-Crie um cluster Kind:
+Use Kind **v0.31.0**, kubectl **v1.35.0** e a versão de referência didática Kubernetes **v1.35.0**. Essas versões `.0` tornam os laboratórios reproduzíveis; em produção, use o patch mais recente com suporte da versão secundária escolhida. Crie um cluster dedicado e selecione seu contexto:
 
 ```bash
-kind create cluster --name packaging-lab
+kind create cluster --name packaging-lab --image kindest/node:v1.35.0@sha256:452d707d4862f52530247495d180205e029056831160e22870e37e3f6c1ac31f
+kubectl config use-context kind-packaging-lab
+kubectl wait --for=condition=Ready nodes --all --timeout=120s
 ```
 
 ### Lab 1: Básico do Helm
 
-**Passo 1 — Adicionar um repositório de charts:**
+**Passo 1 — Criar um chart local e versionado:**
+
+O chart **`web-demo` versão `1.0.0`** está definido integralmente aqui, usando a imagem oficial com manutenção ativa **`nginx:1.30.6-alpine`** (veja o [código-fonte da imagem oficial](https://github.com/nginx/docker-nginx/tree/master/stable/alpine)). Não é necessário usar um chart externo nem uma imagem específica de catálogo. Como este chart é local, `helm search repo` não é necessário; ele demonstra o mesmo ciclo de vida de releases de um chart baixado.
 
 ```bash
-helm repo add bitnami https://charts.bitnami.com/bitnami
-helm repo update
+mkdir -p web-demo/templates
+cat <<'EOF' > web-demo/Chart.yaml
+apiVersion: v2
+name: web-demo
+description: Minimal web server for the packaging lab
+type: application
+version: 1.0.0
+appVersion: "1.30.6"
+EOF
+
+cat <<'EOF' > web-demo/values.yaml
+replicaCount: 1
+image:
+  repository: nginx
+  tag: "1.30.6-alpine"
+service:
+  type: ClusterIP
+  port: 80
+EOF
+
+cat <<'EOF' > web-demo/templates/deployment.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Release.Name }}-web-demo
+  labels:
+    app.kubernetes.io/instance: {{ .Release.Name }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/instance: {{ .Release.Name }}
+      app.kubernetes.io/name: web-demo
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/instance: {{ .Release.Name }}
+        app.kubernetes.io/name: web-demo
+    spec:
+      containers:
+      - name: web
+        image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+        ports:
+        - name: http
+          containerPort: 80
+        readinessProbe:
+          httpGet:
+            path: /
+            port: http
+        resources:
+          requests:
+            cpu: 50m
+            memory: 32Mi
+          limits:
+            cpu: 200m
+            memory: 128Mi
+EOF
+
+cat <<'EOF' > web-demo/templates/service.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Release.Name }}-web-demo
+  labels:
+    app.kubernetes.io/instance: {{ .Release.Name }}
+spec:
+  type: {{ .Values.service.type }}
+  selector:
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/name: web-demo
+  ports:
+  - port: {{ .Values.service.port }}
+    targetPort: http
+EOF
 ```
 
-**Passo 2 — Buscar charts:**
+**Passo 2 — Validar e renderizar antes de instalar:**
 
 ```bash
-helm search repo bitnami/nginx
+helm lint ./web-demo
+helm template my-nginx ./web-demo
 ```
 
-Você verá as versões disponíveis do chart nginx da Bitnami.
-
-**Passo 3 — Inspecionar o chart antes de instalar:**
+**Passo 3 — Inspecionar metadados e valores:**
 
 ```bash
-# Mostrar metadata do chart
-helm show chart bitnami/nginx
+# Show chart metadata
+helm show chart ./web-demo
 
-# Mostrar os valores padrão (isso é o que você pode configurar)
-helm show values bitnami/nginx | head -50
+# Show the default values (this is what you can configure)
+helm show values ./web-demo
 ```
 
 **Passo 4 — Instalar o chart:**
 
 ```bash
-helm install my-nginx bitnami/nginx --set service.type=ClusterIP
+helm install my-nginx ./web-demo --wait --timeout 180s
 ```
 
 **Passo 5 — Explorar a release:**
 
 ```bash
-# Listar releases instaladas
+# List installed releases
 helm list
 
-# Mostrar os valores usados para esta release
+# Show the values used for this release
 helm get values my-nginx
 
-# Mostrar todos os recursos criados pela release
+# Show all resources created by the release
 helm get manifest my-nginx | head -40
 
-# Verificar os pods e services
+# Check the pods and services
 kubectl get pods -l app.kubernetes.io/instance=my-nginx
 kubectl get svc -l app.kubernetes.io/instance=my-nginx
 ```
@@ -427,27 +500,35 @@ kubectl get svc -l app.kubernetes.io/instance=my-nginx
 **Passo 6 — Atualizar a release:**
 
 ```bash
-helm upgrade my-nginx bitnami/nginx \
-  --set service.type=ClusterIP \
-  --set replicaCount=3
+cat <<'EOF' > web-demo-upgrade.yaml
+replicaCount: 3
+image:
+  repository: nginx
+  tag: "1.30.6-alpine"
+service:
+  type: ClusterIP
+  port: 80
+EOF
+helm upgrade my-nginx ./web-demo \
+  --values web-demo-upgrade.yaml --wait --timeout 180s
 
-# Verificar que agora temos 3 réplicas
+# Check that we now have 3 replicas
 kubectl get pods -l app.kubernetes.io/instance=my-nginx
 
-# Ver histórico da release
+# View release history
 helm history my-nginx
 ```
 
 **Passo 7 — Rollback:**
 
 ```bash
-# Rollback para revision 1 (a instalação original)
-helm rollback my-nginx 1
+# Rollback to revision 1 (the original install)
+helm rollback my-nginx 1 --wait --timeout 180s
 
-# Verificar que voltamos para 1 réplica
+# Verify we're back to 1 replica
 kubectl get pods -l app.kubernetes.io/instance=my-nginx
 
-# O histórico agora mostra o rollback
+# History now shows the rollback
 helm history my-nginx
 ```
 
@@ -456,10 +537,12 @@ helm history my-nginx
 ```bash
 helm uninstall my-nginx
 
-# Verificar que tudo foi removido
+# Verify everything is cleaned up
 kubectl get pods -l app.kubernetes.io/instance=my-nginx
 helm list
 ```
+
+A atualização muda os **valores**, não a versão do chart: o chart `1.0.0` e a tag da imagem continuam fixados, enquanto o Helm registra uma nova revisão da release. `--wait` verifica a prontidão na instalação, na atualização e no rollback. Falhas de prontidão devem ser investigadas, não são evidência de um deploy bem-sucedido.
 
 ### Lab 2: Básico do Kustomize
 
@@ -489,7 +572,7 @@ spec:
     spec:
       containers:
       - name: app
-        image: nginx:1.27
+        image: nginx:1.30.6
         ports:
         - containerPort: 80
         resources:
@@ -541,8 +624,10 @@ kind: Kustomization
 resources:
 - ../../base
 namePrefix: dev-
-commonLabels:
-  environment: dev
+labels:
+- pairs:
+    environment: dev
+  includeSelectors: true
 patches:
 - patch: |-
     apiVersion: apps/v1
@@ -563,8 +648,10 @@ kind: Kustomization
 resources:
 - ../../base
 namePrefix: prod-
-commonLabels:
-  environment: production
+labels:
+- pairs:
+    environment: production
+  includeSelectors: true
 patches:
 - patch: |-
     apiVersion: apps/v1
@@ -575,17 +662,19 @@ patches:
       replicas: 5
 images:
 - name: nginx
-  newTag: "1.27-alpine"
+  newTag: "1.30.6-alpine"
 EOF
 ```
 
 **Passo 4 — Comparar as saídas:**
 
+O transformador `labels` usa `includeSelectors: true` para aplicar labels de forma consistente a recursos, seletores de Deployments, templates de Pods e seletores de Services. Isso preserva o comportamento do antigo campo `commonLabels`, sem seu aviso de descontinuação. Não altere esses labels de seleção em um Deployment existente; seletores são imutáveis. Veja a [referência oficial do transformador labels](https://kubectl.docs.kubernetes.io/references/kustomize/kustomization/labels/).
+
 ```bash
-echo "=== OVERLAY DE DEV ==="
+echo "=== DEV OVERLAY ==="
 kubectl kustomize kustomize-demo/overlays/dev
 echo ""
-echo "=== OVERLAY DE PROD ==="
+echo "=== PROD OVERLAY ==="
 kubectl kustomize kustomize-demo/overlays/prod
 ```
 
@@ -594,13 +683,13 @@ Note as diferenças: dev tem 1 réplica com prefixo `dev-`; prod tem 5 réplicas
 **Passo 5 — Aplicar o overlay de dev:**
 
 ```bash
-# Criar o namespace de dev
+# Create the dev namespace
 kubectl create namespace dev
 
-# Aplicar o overlay de dev
+# Apply the dev overlay
 kubectl apply -k kustomize-demo/overlays/dev -n dev
 
-# Verificar
+# Verify
 kubectl get deployment -n dev
 kubectl get pods -n dev
 kubectl get svc -n dev
@@ -609,13 +698,13 @@ kubectl get svc -n dev
 **Passo 6 — Aplicar o overlay de prod:**
 
 ```bash
-# Criar o namespace de produção
+# Create the production namespace
 kubectl create namespace production
 
-# Aplicar o overlay de prod
+# Apply the prod overlay
 kubectl apply -k kustomize-demo/overlays/prod -n production
 
-# Verificar — note a diferença em réplicas e tag de imagem
+# Verify — notice the difference in replicas and image tag
 kubectl get deployment -n production
 kubectl get pods -n production
 kubectl describe deployment prod-my-app -n production | grep Image
@@ -638,7 +727,7 @@ kubectl delete namespace dev production
 ```bash
 mkdir -p helm-kustomize-demo/base
 
-helm template my-nginx bitnami/nginx \
+helm template my-nginx ./web-demo \
   --set service.type=ClusterIP \
   > helm-kustomize-demo/base/nginx.yaml
 ```
@@ -660,29 +749,31 @@ EOF
 **Passo 3 — Pré-visualizar e aplicar:**
 
 ```bash
-# Pré-visualizar — você verá que todos os recursos gerados pelo Helm agora têm nossas annotations customizadas
+# Preview — you'll see all the Helm-generated resources now have our custom annotations
 kubectl kustomize helm-kustomize-demo/base | head -30
 
-# Aplicar
+# Apply
 kubectl apply -k helm-kustomize-demo/base
+kubectl rollout status deployment/my-nginx-web-demo --timeout=180s
 
-# Verificar que as annotations estão presentes
+# Verify the annotations are present
 kubectl get deployment -o yaml | grep -A2 "annotations"
 
-# Limpar
+# Clean up
 kubectl delete -k helm-kustomize-demo/base
 ```
 
-**O que acabou de acontecer:** O Helm renderizou o chart nginx em YAML puro. O Kustomize adicionou annotations que o chart original não suportava. Este padrão permite usar o Helm para o que ele faz bem (empacotar apps de terceiros) e o Kustomize para o que ele faz bem (ajustes específicos por ambiente).
+**O que acabou de acontecer:** O Helm renderizou o chart local `web-demo` versão `1.0.0` em YAML puro. O Kustomize adicionou annotations que o chart não expunha como valores. Isso demonstra empacotamento combinado com patches, sem um catálogo externo de imagens. Como o resultado foi aplicado com kubectl, e não com `helm install`, ele não é uma release gerenciada pelo Helm: remova-o com `kubectl delete -k`, não com `helm uninstall`.
 
 ### Limpeza
 
 ```bash
-# Deletar o cluster Kind
+# Delete the Kind cluster
 kind delete cluster --name packaging-lab
 
-# Remover os diretórios de demo
-rm -rf kustomize-demo helm-kustomize-demo
+# Remove the demo directories
+rm -rf kustomize-demo helm-kustomize-demo web-demo
+rm -f web-demo-upgrade.yaml
 ```
 
 ---
@@ -714,6 +805,8 @@ rm -rf kustomize-demo helm-kustomize-demo
 - [kubectl kustomize](https://kubernetes.io/docs/reference/kubectl/generated/kubectl_kustomize/)
 - [Artifact Hub — Find Helm Charts](https://artifacthub.io/)
 - [ArgoCD Documentation](https://argo-cd.readthedocs.io/en/stable/)
+- [Argo CD — sincronização automática, self-healing e pruning](https://argo-cd.readthedocs.io/en/stable/user-guide/auto_sync/)
+- [Código-fonte da imagem oficial do NGINX](https://github.com/nginx/docker-nginx)
 - [Flux Documentation](https://fluxcd.io/flux/)
 
 ---

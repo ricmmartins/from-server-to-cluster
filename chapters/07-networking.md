@@ -137,9 +137,9 @@ Ao invés de retornar um único ClusterIP, uma consulta DNS para `db-headless` r
 
 ---
 
-## kube-proxy e iptables: Como os Services Realmente Funcionam
+## kube-proxy e Regras de Pacotes do Linux: Como os Services Realmente Funcionam
 
-Services não são mágica — são regras de iptables. Vamos desmistificar.
+Services não são mágica: um plano de dados implementa seus IPs virtuais. Com kube-proxy no Linux, isso pode significar iptables, nftables ou o backend legado IPVS. Alguns CNIs substituem kube-proxy por um plano de dados eBPF. Vamos desmistificar primeiro o exemplo com iptables.
 
 **kube-proxy** roda em cada node (como um DaemonSet) e observa o API server para mudanças em Services e EndpointSlices. Quando um Service é criado ou atualizado, o kube-proxy programa regras no node para implementar o balanceamento de carga.
 
@@ -157,16 +157,17 @@ KUBE-SERVICES → KUBE-SVC-<hash> → KUBE-SEP-<hash> (um por endpoint)
 
 Se você já escreveu regras NAT de iptables, isso vai parecer muito familiar. A única diferença é que o kube-proxy gera e mantém centenas ou milhares dessas regras automaticamente.
 
-### iptables vs. Modo IPVS
+### Modos de Proxy Linux na Base Kubernetes 1.35
 
-kube-proxy suporta dois modos:
+kube-proxy suporta estes modos no Linux:
 
 | Modo | Como Funciona | Melhor Para |
 |------|--------------|-------------|
-| **iptables** (padrão) | Regras NAT no kernel netfilter. Correspondência de regras O(n). | Clusters pequenos a médios |
-| **IPVS** | Linux Virtual Server (módulo do kernel). Lookup baseado em hash. O(1). | Clusters grandes com muitos Services |
+| **iptables** | Programa o netfilter pela API iptables; amplamente compatível e padrão no Kubernetes 1.35. | Clusters existentes e a configuração explícita deste laboratório |
+| **nftables** | Programa o netfilter pela API nftables; estável desde o Kubernetes **1.33**. | Nodes Linux modernos, após verificar a compatibilidade do kernel e do CNI |
+| **IPVS** | Usa a API IPVS do kernel junto com iptables; **marcado como obsoleto no Kubernetes 1.35**. | Instalações legadas, não recomendado para novos clusters |
 
-Para a maioria dos clusters, o modo iptables funciona bem. IPVS se torna importante quando você tem milhares de Services e a quantidade de regras iptables causa problemas de performance.
+Não deduza o modo ativo pela presença do comando `iptables`. Inspecione a configuração e os logs do kube-proxy. nftables exige um kernel suficientemente recente (Linux 5.13 ou mais novo) e componentes de rede compatíveis; é o caminho de substituição do IPVS, não uma mudança automática neste laboratório. O frontend de comando `iptables-nft` também não é a mesma coisa que o modo `nftables` do kube-proxy.
 
 ---
 
@@ -250,12 +251,13 @@ A diferença principal: ao invés de editar arquivos de configuração do nginx 
 
 Um recurso Ingress sozinho não faz nada. Você precisa de um **Ingress Controller** — um Pod que observa recursos Ingress e configura um reverse proxy correspondente. Opções populares:
 
-- **ingress-nginx** — O mais comum. Executa nginx internamente.
-- **Traefik** — Auto-descoberta, dashboard, integração com Let's Encrypt.
+- **Traefik** — Controller com manutenção ativa e providers para Kubernetes Ingress e Gateway API; usado neste capítulo.
 - **HAProxy Ingress** — Para fãs do HAProxy.
 - **Opções cloud-native** — AWS ALB Controller, GCE Ingress Controller.
 
 > **Nota:** O projeto Kubernetes agora recomenda Gateway API ao invés de Ingress. A API Ingress é estável mas congelada — nenhuma nova funcionalidade será adicionada.
+
+**Não instale o controller comunitário `ingress-nginx`, que foi aposentado.** A manutenção terminou em março de 2026; não haverá novas versões nem correções de segurança. Ele é diferente da imagem da aplicação NGINX usada como backend de teste. Veja o [anúncio oficial de aposentadoria](https://kubernetes.io/blog/2025/11/11/ingress-nginx-retirement/).
 
 ---
 
@@ -286,35 +288,35 @@ Problemas de rede estão entre os mais comuns no Kubernetes. Aqui está seu kit 
 ### De Dentro de um Pod
 
 ```bash
-# Executar um pod de debug com ferramentas de rede
+# Run a debug pod with networking tools
 kubectl run debug --image=busybox:1.36 --rm -it --restart=Never -- sh
 
-# Testar conectividade com um service
+# Test connectivity to a service
 wget -qO- http://nginx-svc
 wget -qO- http://nginx-svc.default.svc.cluster.local
 
-# Verificar resolução DNS
+# Check DNS resolution
 nslookup nginx-svc
 nslookup nginx-svc.default.svc.cluster.local
 
-# Verificar os domínios de busca do resolv.conf
+# Check the resolv.conf search domains
 cat /etc/resolv.conf
 ```
 
 ### Da Sua Máquina
 
 ```bash
-# Port-forward para acessar um service localmente
+# Port-forward to access a service locally
 kubectl port-forward svc/nginx-svc 8080:80
 
-# Então em outro terminal:
+# Then in another terminal:
 curl http://localhost:8080
 
-# Verificar endpoints do Service (quais Pods sustentam o Service)
+# Check Service endpoints (which Pods back the Service)
 kubectl get endpoints nginx-svc
 kubectl get endpointslices -l kubernetes.io/service-name=nginx-svc
 
-# Descrever um Service para detalhes completos
+# Describe a Service for full details
 kubectl describe svc nginx-svc
 ```
 
@@ -349,28 +351,40 @@ kubectl describe svc nginx-svc
 
 ### Pré-requisitos
 
-Certifique-se de que seu cluster Kind está rodando (com pelo menos dois worker nodes):
+Use **Kind v0.31.0**, **kubectl v1.35.0**, Docker em execução e a porta TCP local **8080** livre. A imagem Kubernetes **v1.35.0** abaixo é uma referência didática com versão fixada; em produção, use o patch mais recente com suporte da versão secundária escolhida.
+
+Crie o cluster dedicado `network-lab` abaixo, não um cluster existente do Capítulo 5 ou 6. O mapeamento de portas, o label de node e o modo de proxy fazem parte do laboratório, não são configurações opcionais. Primeiro, confira os nomes existentes:
 
 ```bash
 kind get clusters
 ```
 
-Se não, crie um:
+Se `network-lab` já existir, pare e inspecione-o. Não o reutilize sem verificar: depois de aceitar a perda dos dados desse laboratório, exclua-o com `kind delete cluster --name network-lab` e recrie-o com esta configuração exata. O Kind não consegue adicionar mapeamentos de portas do host a um cluster existente.
 
 ```bash
-kind create cluster --name lab-cluster --config - <<EOF
+kind create cluster --name network-lab --image kindest/node:v1.35.0@sha256:452d707d4862f52530247495d180205e029056831160e22870e37e3f6c1ac31f --config - <<EOF
 kind: Cluster
 apiVersion: kind.x-k8s.io/v1alpha4
+networking:
+  kubeProxyMode: iptables
 nodes:
 - role: control-plane
+  labels:
+    ingress-ready: "true"
   extraPortMappings:
   - containerPort: 80
     hostPort: 8080
+    listenAddress: "127.0.0.1"
     protocol: TCP
 - role: worker
 - role: worker
 EOF
+kubectl config use-context kind-network-lab
+kubectl wait --for=condition=Ready nodes --all --timeout=120s
+kubectl get nodes -L ingress-ready
 ```
+
+Somente `network-lab-control-plane` deve ter `ingress-ready=true`. O Pod Traefik do Lab 5 é agendado explicitamente nele, com uma toleration para o control plane e `hostPort: 80`, correspondendo ao mapeamento do Kind. Todos os comandos abaixo usam o contexto `kind-network-lab` e o namespace default, salvo indicação em contrário.
 
 ---
 
@@ -399,8 +413,8 @@ Saída esperada (IPs vão diferir):
 
 ```
 NAME    READY   STATUS    RESTARTS   AGE   IP           NODE
-debug   1/1     Running   0          30s   10.244.1.3   lab-cluster-worker
-nginx   1/1     Running   0          30s   10.244.2.5   lab-cluster-worker2
+debug   1/1     Running   0          30s   10.244.1.3   network-lab-worker
+nginx   1/1     Running   0          30s   10.244.2.5   network-lab-worker2
 ```
 
 Observe: cada Pod tem seu próprio IP único, e eles podem estar em nodes diferentes.
@@ -408,11 +422,11 @@ Observe: cada Pod tem seu próprio IP único, e eles podem estar em nodes difere
 **Passo 3 — Teste conectividade pod-para-pod:**
 
 ```bash
-# Obter o IP do Pod nginx
+# Get the nginx Pod IP
 NGINX_IP=$(kubectl get pod nginx -o jsonpath='{.status.podIP}')
 echo "Nginx Pod IP: $NGINX_IP"
 
-# Do pod de debug, conectar ao nginx por IP
+# From the debug pod, connect to nginx by IP
 kubectl exec debug -- wget -qO- http://$NGINX_IP
 ```
 
@@ -485,7 +499,8 @@ kill %1 2>/dev/null
 **Passo 1 — Olhe a cadeia KUBE-SERVICES:**
 
 ```bash
-docker exec lab-cluster-worker iptables -t nat -L KUBE-SERVICES -n | head -20
+kubectl -n kube-system get configmap kube-proxy -o yaml
+docker exec network-lab-worker iptables -t nat -L KUBE-SERVICES -n | head -20
 ```
 
 Você verá entradas como:
@@ -499,8 +514,8 @@ KUBE-SVC-XXXX  tcp  --  0.0.0.0/0       10.96.45.123    /* default/nginx-svc clu
 **Passo 2 — Siga a cadeia para ver a seleção de endpoints:**
 
 ```bash
-# Obter o nome da cadeia KUBE-SVC para nosso service
-docker exec lab-cluster-worker iptables -t nat -L -n | grep nginx-svc
+# Get the KUBE-SVC chain name for our service
+docker exec network-lab-worker iptables -t nat -L -n | grep nginx-svc
 ```
 
 **Passo 3 — Entenda o fluxo:**
@@ -564,20 +579,129 @@ A opção `ndots:5` significa que qualquer nome com menos de 5 pontos é tratado
 
 ### Lab 5: Implantar um Ingress Controller e Criar um Ingress
 
-**Passo 1 — Instale o NGINX Ingress Controller para Kind:**
+**Passo 1 — Instale o controller Traefik com versão fixada:**
+
+Este manifesto autocontido usa **`traefik:v3.7.15`** da [versão oficial](https://github.com/traefik/traefik/releases/tag/v3.7.15) e o [provider Kubernetes Ingress](https://doc.traefik.io/traefik/v3.7/reference/install-configuration/providers/kubernetes/kubernetes-ingress/). Não é necessário usar Helm, CRDs do Traefik, dashboard nem annotations específicas do nginx. As permissões de leitura no escopo do cluster são para este laboratório dedicado; em produção, o RBAC deve seguir seu modelo de namespaces e isolamento entre usuários.
+
+Salve e aplique `traefik.yaml`:
 
 ```bash
-kubectl apply -f https://raw.githubusercontent.com/kubernetes/ingress-nginx/main/deploy/static/provider/kind/deploy.yaml
+cat <<'EOF' > traefik.yaml
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: traefik
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: traefik
+  namespace: traefik
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: network-lab-traefik
+rules:
+- apiGroups: [""]
+  resources: ["services", "secrets", "nodes", "namespaces"]
+  verbs: ["get", "list", "watch"]
+- apiGroups: ["discovery.k8s.io"]
+  resources: ["endpointslices"]
+  verbs: ["get", "list", "watch"]
+- apiGroups: ["networking.k8s.io"]
+  resources: ["ingresses", "ingressclasses"]
+  verbs: ["get", "list", "watch"]
+- apiGroups: ["networking.k8s.io"]
+  resources: ["ingresses/status"]
+  verbs: ["update"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: network-lab-traefik
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: network-lab-traefik
+subjects:
+- kind: ServiceAccount
+  name: traefik
+  namespace: traefik
+---
+apiVersion: networking.k8s.io/v1
+kind: IngressClass
+metadata:
+  name: traefik
+spec:
+  controller: traefik.io/ingress-controller
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: traefik
+  namespace: traefik
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: traefik
+  template:
+    metadata:
+      labels:
+        app: traefik
+    spec:
+      serviceAccountName: traefik
+      nodeSelector:
+        ingress-ready: "true"
+      tolerations:
+      - key: node-role.kubernetes.io/control-plane
+        operator: Exists
+        effect: NoSchedule
+      containers:
+      - name: traefik
+        image: traefik:v3.7.15
+        args:
+        - --providers.kubernetesingress=true
+        - --providers.kubernetesingress.ingressclass=traefik
+        - --entrypoints.web.address=:8080
+        - --entrypoints.web.asdefault=true
+        - --entrypoints.health.address=:8082
+        - --ping=true
+        - --ping.entrypoint=health
+        ports:
+        - name: web
+          containerPort: 8080
+          hostPort: 80
+        - name: health
+          containerPort: 8082
+        readinessProbe:
+          httpGet:
+            path: /ping
+            port: health
+        securityContext:
+          runAsNonRoot: true
+          runAsUser: 65532
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop: ["ALL"]
+EOF
+kubectl apply -f traefik.yaml
+kubectl -n traefik rollout status deployment/traefik --timeout=180s
+kubectl -n traefik get pods -o wide
 ```
 
-**Passo 2 — Aguarde o controller estar pronto:**
+**Passo 2 — Verifique o backend dos Labs 1–2:**
 
 ```bash
-kubectl wait --namespace ingress-nginx \
-  --for=condition=ready pod \
-  --selector=app.kubernetes.io/component=controller \
-  --timeout=120s
+kubectl wait --for=condition=Ready pod/nginx --timeout=120s
+kubectl get svc nginx-svc
+kubectl get endpointslices -l kubernetes.io/service-name=nginx-svc
 ```
+
+O Service deve expor a porta 80 e selecionar o Pod nginx pronto. O controller usa seu próprio `hostPort`, portanto não exige um Service LoadBalancer.
 
 **Passo 3 — Crie um recurso Ingress:**
 
@@ -588,6 +712,7 @@ kind: Ingress
 metadata:
   name: nginx-ingress
 spec:
+  ingressClassName: traefik
   rules:
   - http:
       paths:
@@ -607,16 +732,16 @@ kubectl apply -f ingress.yaml
 
 **Passo 4 — Teste o Ingress:**
 
-O cluster Kind foi criado com a porta 80 mapeada para a porta 8080 do host (da nossa configuração de cluster). O NGINX Ingress Controller usa hostPort 80, então:
+O Kind mapeia `127.0.0.1:8080` do host para a porta 80 do control plane; o Pod Traefik agendado ali mapeia esse hostPort para seu entrypoint `web` na porta 8080 do container. A configuração de roteamento pode levar alguns segundos para se propagar:
 
 ```bash
-curl -s http://localhost:8080 | head -10
+curl --fail --show-error --retry 10 --retry-connrefused --retry-all-errors --retry-delay 2 http://127.0.0.1:8080/
 ```
 
 Você deve ver a página de boas-vindas do nginx. O fluxo de tráfego é:
 
 ```
-localhost:8080 → porta 80 do container Kind → Ingress Controller → nginx-svc → Pod nginx
+127.0.0.1:8080 → porta 80 do control plane Kind → Traefik :8080 → nginx-svc:80 → Pod nginx:80
 ```
 
 **Passo 5 — Inspecione o Ingress:**
@@ -626,15 +751,19 @@ kubectl get ingress
 kubectl describe ingress nginx-ingress
 ```
 
+O campo `ADDRESS` do Ingress pode permanecer vazio neste laboratório que usa somente hostPort; não há um load balancer de nuvem. Verifique a resposta HTTP e os logs do controller, em vez de tratar esse campo isolado como um health check.
+
 ---
 
 ### Limpeza
 
 ```bash
 kubectl delete ingress nginx-ingress
+kubectl delete -f traefik.yaml
 kubectl delete svc nginx-svc nginx-nodeport
 kubectl delete pod nginx debug
-rm -f ingress.yaml
+kind delete cluster --name network-lab
+rm -f ingress.yaml traefik.yaml
 ```
 
 ---
@@ -645,11 +774,11 @@ rm -f ingress.yaml
 
 2. **Services fornecem endpoints estáveis para Pods efêmeros.** ClusterIP para tráfego interno, NodePort para acesso de desenvolvimento, LoadBalancer para acesso externo em produção, e Headless para descoberta direta de Pods.
 
-3. **kube-proxy implementa Services usando regras DNAT do iptables em cada node.** Não há proxy central — é reescrita distribuída de pacotes no nível do kernel. Para clusters grandes, o modo IPVS oferece melhor performance.
+3. **kube-proxy programa o plano de dados dos Services em cada node.** No Linux, há suporte a iptables e nftables (estável desde a 1.33); IPVS foi marcado como obsoleto na 1.35. Este laboratório usa iptables explicitamente para que os comandos de inspeção de regras façam sentido.
 
 4. **CoreDNS dá a cada Service um nome DNS automático.** Use `<svc>.<namespace>.svc.cluster.local` (ou apenas `<svc>` dentro do mesmo namespace). Nunca codifique IPs de Pods diretamente.
 
-5. **Ingress fornece roteamento HTTP L7 — baseado em hostname e caminho.** Ele requer um Ingress Controller (como ingress-nginx) para realmente funcionar. Gateway API é a substituição moderna com mais funcionalidades e melhor separação de papéis.
+5. **Ingress fornece roteamento HTTP L7 — baseado em hostname e caminho.** Ele requer um controller com manutenção ativa, como o Traefik, e uma IngressClass adequada. O controller comunitário ingress-nginx foi aposentado. Gateway API é a substituição moderna com mais funcionalidades e melhor separação de papéis.
 
 6. **Domínios de busca DNS tornam a descoberta de serviços transparente.** A linha `search` no `/etc/resolv.conf` permite usar nomes curtos como `nginx-svc` ao invés do FQDN completo. A configuração `ndots:5` garante que nomes relativos passem pela lista de busca primeiro.
 
@@ -665,7 +794,10 @@ rm -f ingress.yaml
 - [Ingress](https://kubernetes.io/docs/concepts/services-networking/ingress/)
 - [Gateway API](https://kubernetes.io/docs/concepts/services-networking/gateway/)
 - [Kind — Ingress](https://kind.sigs.k8s.io/docs/user/ingress/)
-- [NGINX Ingress Controller](https://kubernetes.github.io/ingress-nginx/deploy/)
+- [Traefik v3.7 — Provider Kubernetes Ingress](https://doc.traefik.io/traefik/v3.7/reference/install-configuration/providers/kubernetes/kubernetes-ingress/)
+- [Versão Traefik v3.7.15](https://github.com/traefik/traefik/releases/tag/v3.7.15)
+- [IPs virtuais e modos de proxy de Services](https://kubernetes.io/docs/reference/networking/virtual-ips/)
+- [Configuração do Kind — mapeamentos de portas e labels de nodes](https://kind.sigs.k8s.io/docs/user/configuration/)
 
 ---
 

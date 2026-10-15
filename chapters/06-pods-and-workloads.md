@@ -53,7 +53,7 @@ spec:
 
 Quando você precisa de processos fortemente acoplados, Pods multi-container fazem sentido. Os padrões mais comuns:
 
-**Sidecar containers** — Um auxiliar que roda ao lado da aplicação principal. Exemplos: enviadores de log, proxies de service mesh, terminação TLS. Sidecar containers nativos (usando `initContainers` com `restartPolicy: Always`) foram introduzidos como alpha na v1.28, beta na v1.29 e graduaram para estável (GA) na v1.31. Eles garantem que o sidecar inicie antes e pare depois do container principal.
+**Sidecar containers** — Um auxiliar que roda ao lado da aplicação principal. Exemplos: enviadores de log, proxies de service mesh, terminação TLS. Sidecar containers nativos (usando `initContainers` com `restartPolicy: Always`) foram introduzidos como alpha na v1.28, beta na v1.29 e graduaram para estável (GA) na v1.33. Eles garantem que o sidecar inicie antes e pare depois do container principal.
 
 **Init containers** — Executam até a conclusão *antes* que os containers principais iniciem. Usados para tarefas de setup: esperar que um banco de dados esteja pronto, popular um volume compartilhado, executar migrações.
 
@@ -198,7 +198,30 @@ StatefulSets fornecem garantias que Deployments não oferecem:
 
 Pense nisso como servidores de banco de dados nomeados no Linux: você não tem "algum servidor de banco de dados" — você tem `db-primary`, `db-replica-1`, `db-replica-2`, cada um com seu próprio diretório de dados em um disco dedicado.
 
+O exemplo didático a seguir exige uma StorageClass padrão. Primeiro, crie um Secret exclusivo do laboratório a partir de um arquivo de senha gerada, sem colocar a senha no controle de versão nem em um argumento de linha de comando (Bash com OpenSSL):
+
+```bash
+(umask 077; openssl rand -hex 32 | tr -d '\n' > db-password)
+kubectl create secret generic db-credentials --from-file=password=db-password
+rm -f db-password
+```
+
+Não faça commit nem exiba o valor gerado. Secrets do Kubernetes ainda precisam de RBAC e criptografia em repouso (Capítulo 9); credenciais de produção devem seguir um fluxo gerenciado de secrets. Aplique o Headless Service e o StatefulSet abaixo no mesmo namespace do Secret:
+
 ```yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: db-headless
+spec:
+  clusterIP: None
+  selector:
+    app: db
+  ports:
+  - name: postgres
+    port: 5432
+    targetPort: 5432
+---
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
@@ -217,6 +240,12 @@ spec:
       containers:
       - name: db
         image: postgres:16
+        env:
+        - name: POSTGRES_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: db-credentials
+              key: password
         ports:
         - containerPort: 5432
         volumeMounts:
@@ -233,6 +262,8 @@ spec:
 ```
 
 O campo `volumeClaimTemplates` é exclusivo de StatefulSets — ele cria um PersistentVolumeClaim separado para cada Pod (`data-db-0`, `data-db-1`, `data-db-2`). Mesmo se um Pod for deletado e recriado, ele se reconecta ao mesmo volume.
+
+**Três Pods não significam replicação do PostgreSQL.** Este manifesto inicializa três bancos de dados independentes, com diretórios de dados separados. StatefulSets fornecem identidade, ordenação e armazenamento, não replicação de banco de dados, eleição de líder, backups ou failover. Para esses recursos, use configuração específica do banco ou um operator PostgreSQL com manutenção ativa; não trate este exemplo como um banco de dados de alta disponibilidade.
 
 ---
 
@@ -388,13 +419,13 @@ spec:
 Toda vez que você atualiza um Deployment, o Kubernetes mantém o ReplicaSet antigo (escalado para 0). Este é o seu histórico de rollback. Você pode desfazer uma atualização instantaneamente:
 
 ```bash
-# Desfazer a última atualização
+# Undo the last update
 kubectl rollout undo deployment/nginx
 
-# Desfazer para uma revisão específica
+# Undo to a specific revision
 kubectl rollout undo deployment/nginx --to-revision=2
 
-# Verificar histórico de rollout
+# Check rollout history
 kubectl rollout history deployment/nginx
 ```
 
@@ -402,9 +433,9 @@ kubectl rollout history deployment/nginx
 
 ## Pod Disruption Budgets (PDB)
 
-Rolling updates são disrupções voluntárias — você escolheu fazê-las. Mas disrupções também acontecem durante drains de node (para manutenção ou upgrades), autoscaling de cluster e outras operações administrativas.
+Rolling updates e exclusões diretas de Pods são disrupções voluntárias, mas **PDBs não limitam nenhuma dessas operações**. Um PDB restringe solicitações pela **Eviction API**, como operações normais de `kubectl drain` e reduções do cluster baseadas em eviction.
 
-Um **PodDisruptionBudget** diz ao Kubernetes: "Durante disrupções voluntárias, nunca deixe menos que N Pods disponíveis."
+Um **PodDisruptionBudget** diz aos clientes de eviction: "Rejeite uma eviction que deixaria menos que N Pods selecionados disponíveis."
 
 ```yaml
 apiVersion: policy/v1
@@ -418,7 +449,9 @@ spec:
       app: nginx
 ```
 
-Com este PDB e 3 réplicas, o Kubernetes só fará drain de um Pod por vez do Deployment nginx. Se drenar um node violaria o budget, a operação de drain bloqueia até ser seguro.
+Com este PDB e 3 réplicas saudáveis e disponíveis, no máximo um Pod selecionado pode ficar indisponível antes que novas evictions sejam bloqueadas. Se drenar um node violar o budget, a operação de drain espera até ser seguro.
+
+Um `kubectl delete pod` direto, rollouts de controllers e falhas involuntárias ainda podem reduzir a disponibilidade além do budget. Configure `maxUnavailable`/`maxSurge` do Deployment (ou a estratégia de atualização do workload) separadamente; um PDB não é uma garantia universal de disponibilidade.
 
 Você pode especificar:
 - **`minAvailable`** — Mínimo de Pods que devem continuar rodando (número absoluto ou porcentagem)
@@ -454,6 +487,8 @@ Você pode especificar:
 
 ### Pré-requisitos
 
+Use as versões de referência do laboratório do livro: Kind **v0.31.0**, kubectl **v1.35.0** e Kubernetes **v1.35.0**, com a imagem de node fixada abaixo. Essas versões `.0` servem para tornar o laboratório reproduzível, não como recomendação de patch para produção; em produção, use o patch mais recente com suporte da versão secundária escolhida.
+
 Certifique-se de que seu cluster Kind do Capítulo 5 está rodando:
 
 ```bash
@@ -463,7 +498,7 @@ kind get clusters
 Se não, crie um:
 
 ```bash
-kind create cluster --name lab-cluster --config - <<EOF
+kind create cluster --name lab-cluster --image kindest/node:v1.35.0@sha256:452d707d4862f52530247495d180205e029056831160e22870e37e3f6c1ac31f --config - <<EOF
 kind: Cluster
 apiVersion: kind.x-k8s.io/v1alpha4
 nodes:
@@ -471,6 +506,12 @@ nodes:
 - role: worker
 - role: worker
 EOF
+```
+
+Selecione o cluster desejado antes de executar qualquer comando do laboratório:
+
+```bash
+kubectl config use-context kind-lab-cluster
 ```
 
 ---
@@ -938,7 +979,7 @@ rm -f pod.yaml deployment.yaml daemonset.yaml job.yaml cronjob.yaml probe-test.y
 
 6. **Probes são seu sistema de health check em três camadas.** Liveness reinicia containers quebrados. Readiness controla fluxo de tráfego. Startup dá tempo para aplicações lentas inicializarem. Configure-os para todo workload em produção.
 
-7. **Pod Disruption Budgets protegem suas aplicações durante manutenção planejada.** Sem um PDB, um `kubectl drain` pode derrubar todas as suas réplicas simultaneamente.
+7. **Pod Disruption Budgets restringem manutenções baseadas em eviction.** Um `kubectl drain` normal os respeita; exclusões diretas, rollouts de controllers e falhas, não. Configure a disponibilidade durante rollouts separadamente.
 
 ---
 
@@ -946,6 +987,7 @@ rm -f pod.yaml deployment.yaml daemonset.yaml job.yaml cronjob.yaml probe-test.y
 
 - [Pods](https://kubernetes.io/docs/concepts/workloads/pods/)
 - [Init Containers](https://kubernetes.io/docs/concepts/workloads/pods/init-containers/)
+- [Sidecar Containers — estáveis desde a v1.33](https://kubernetes.io/docs/concepts/workloads/pods/sidecar-containers/)
 - [Deployments](https://kubernetes.io/docs/concepts/workloads/controllers/deployment/)
 - [ReplicaSets](https://kubernetes.io/docs/concepts/workloads/controllers/replicaset/)
 - [DaemonSets](https://kubernetes.io/docs/concepts/workloads/controllers/daemonset/)

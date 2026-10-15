@@ -15,9 +15,12 @@
 | daemon | DaemonSet | Garante que exatamente um Pod rode em cada (ou em nós selecionados) nó do cluster |
 | cron | CronJob | Agenda Pods para execução em um padrão baseado em tempo (sintaxe cron) |
 | at (tarefa agendada única) | Job | Executa um Pod até a conclusão e rastreia sucesso/falha |
-| SIGTERM | Terminação do Pod (preStop + SIGTERM) | O Kubernetes envia SIGTERM, depois aguarda `terminationGracePeriodSeconds` antes do SIGKILL |
-| SIGKILL | Exclusão forçada (`--grace-period=0 --force`) | Terminação imediata do Pod sem shutdown gracioso |
-| nice / renice | Resource requests e limits | `resources.requests` define prioridade de agendamento; `resources.limits` limita o uso |
+| SIGTERM | Encerramento gracioso do Pod | A contagem do período de tolerância começa antes do `preStop`; o hook consome parte desse prazo, depois o runtime normalmente envia SIGTERM e aguarda o tempo restante |
+| SIGKILL | Encerramento imposto pelo runtime após o fim do período de tolerância | O kubelet solicita ao runtime que encerre os processos restantes; a exclusão forçada não comprova que isso aconteceu |
+| Remoção de um registro de processo (não é um sinal) | Exclusão forçada (`--grace-period=0 --force`) | Remove o objeto Pod da API sem esperar confirmação do nó; os processos podem continuar em execução em um nó inacessível. Verifique o encerramento ou isole o nó (fencing) antes de substituir um processo de escrita com estado, para evitar split-brain |
+| nice / renice (analogia apenas com o peso de CPU) | Request de CPU | No Linux, requests de CPU influenciam o peso relativo de CPU quando há disputa pelo recurso; não definem a prioridade de agendamento do Pod |
+| Planejamento de capacidade / limites de cgroup | Resource requests e limits | Requests determinam se o Pod cabe na capacidade alocável do nó; limites de CPU causam throttling, enquanto limites de memória podem provocar encerramentos por OOM |
+| Prioridade na fila de execução (analogia aproximada) | PriorityClass / `priorityClassName` | Define a ordem de agendamento dos Pods e pode afetar a preempção, independentemente dos requests de recursos; não equivale ao nice de processos Linux |
 | ulimit | LimitRange / ResourceQuota | LimitRange define padrões por Pod; ResourceQuota limita totais por namespace |
 | systemd unit file | Pod spec / Deployment manifest | YAML declarativo descrevendo o estado desejado de uma carga de trabalho |
 | `Restart=always` | `restartPolicy: Always` | Política padrão de reinício do Pod — kubelet reinicia containers com falha automaticamente |
@@ -37,9 +40,9 @@
 | reverse proxy (nginx / haproxy) | Ingress / Gateway API | Balanceamento de carga L7 com roteamento por caminho e terminação TLS |
 | network namespace | Pod network namespace | Todos os containers em um Pod compartilham um namespace de rede (um IP, um loopback) |
 | bridge (`brctl`) | Plugin CNI bridge (ex.: Calico, Cilium) | O plugin CNI configura bridges/rotas virtuais para rede dos Pods |
-| VLAN | NetworkPolicy + isolamento de namespace | Segmentação lógica de tráfego via seletores de labels e regras de política |
+| VLAN (analogia aproximada) | NetworkPolicy | Controles de tráfego baseados em labels exigem um plugin de rede que aplique as políticas; namespaces, por si só, não isolam o tráfego |
 | traceroute | `kubectl debug` + traceroute dentro do Pod | Execute Pods de diagnóstico para rastrear caminhos de rede dentro do cluster |
-| regras de firewall (ufw / iptables) | NetworkPolicy | Declare tráfego de ingress/egress permitido por Pod usando seletores de labels |
+| regras de firewall (ufw / iptables) | NetworkPolicy | Declare tráfego de ingress/egress permitido por Pod usando seletores de labels; exige um plugin de rede que aplique as políticas |
 
 ## Armazenamento
 
@@ -77,7 +80,7 @@
 | sudoers | ClusterRoleBinding (cluster-admin) | Concede privilégios elevados — equivalente a root em todo o cluster |
 | Linux capabilities (`capsh`) | `securityContext.capabilities.add/drop` | Adiciona ou remove capabilities específicas do kernel (ex.: NET_ADMIN, SYS_TIME) |
 | SELinux / AppArmor | Pod Security Admission / securityContext | Aplica perfis via `seLinuxOptions` ou `appArmorProfile` no Pod spec |
-| firewall (ufw / iptables) | NetworkPolicy | Restringe tráfego Pod-a-Pod em L3/L4 com regras baseadas em labels |
+| firewall (ufw / iptables) | NetworkPolicy | Restringe tráfego Pod-a-Pod em L3/L4 com regras baseadas em labels quando o plugin de rede as aplica |
 | SSH keys (authorized_keys) | Certificados kubeconfig / tokens OIDC | Autentica no API server via certificados de cliente ou provedores de identidade |
 | Certificate authority (CA) | Cluster CA / cert-manager | A CA do cluster assina certificados do kubelet e API server; cert-manager automatiza TLS |
 
@@ -117,6 +120,10 @@
 | crontab (agendamento em nível de usuário) | CronJob | Agenda cargas de trabalho recorrentes com expressões cron familiares |
 | logrotate | Rotação de logs no container runtime | containerd/kubelet gerenciam rotação de arquivos de log; configure via flags do kubelet |
 | systemd timers | CronJob (para dentro do cluster) / triggers externos | CronJobs substituem systemd timers para tarefas agendadas dentro do cluster |
+
+## Referências de Semântica
+
+Referências oficiais consultadas em **2026-10-15**: [encerramento de Pods e exclusão forçada](https://kubernetes.io/docs/concepts/workloads/pods/pod-lifecycle/#pod-termination), [requests e limits de recursos](https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/), [prioridade e preempção de Pods](https://kubernetes.io/docs/concepts/scheduling-eviction/pod-priority-preemption/) e [aplicação de NetworkPolicy](https://kubernetes.io/docs/concepts/services-networking/network-policies/). Esses mapeamentos são analogias, não substituições diretas.
 
 ---
 

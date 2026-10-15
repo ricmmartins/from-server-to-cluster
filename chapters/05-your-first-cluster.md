@@ -36,7 +36,8 @@ Isso lhe dá um cluster de 3 nodes: um control plane e dois workers. Cada "node"
 Salve isso como `kind-config.yaml` e crie o cluster:
 
 ```bash
-kind create cluster --name first-cluster --config kind-config.yaml
+kind create cluster --name first-cluster --config kind-config.yaml \
+  --image kindest/node:v1.35.0@sha256:452d707d4862f52530247495d180205e029056831160e22870e37e3f6c1ac31f
 ```
 
 ### Mapeamento de Portas
@@ -56,7 +57,7 @@ nodes:
 - role: worker
 ```
 
-Isso mapeia a porta 30080 dentro do cluster (comumente usada com Services NodePort) para a porta 8080 na sua máquina local. Usaremos isso em capítulos posteriores.
+Isso mapeia a porta 30080 no container do node control-plane para a porta 8080 na sua máquina local. Um Service NodePort precisa usar explicitamente `nodePort: 30080` para esse mapeamento; um NodePort alocado automaticamente pode ser diferente. Usaremos isso em capítulos posteriores. Os mapeamentos de porta precisam ser configurados ao criar o cluster, não adicionados a um cluster existente.
 
 ### O Que o Kind Cria Por Baixo dos Panos
 
@@ -120,16 +121,16 @@ current-context: kind-first-cluster
 Se você gerencia múltiplos clusters (dev, staging, production — ou múltiplos clusters Kind para testes), contexts permitem alternar entre eles:
 
 ```bash
-# Ver todos os contexts disponíveis
+# See all available contexts
 kubectl config get-contexts
 
-# Ver qual context está ativo atualmente
+# See which context is currently active
 kubectl config current-context
 
-# Mudar para um context diferente
+# Switch to a different context
 kubectl config use-context kind-first-cluster
 
-# Visualizar o kubeconfig completo (ocultando dados sensíveis)
+# View the full kubeconfig (redacting sensitive data)
 kubectl config view
 ```
 
@@ -186,28 +187,28 @@ Nomes curtos economizam digitação: `kubectl get po` é o mesmo que `kubectl ge
 kubectl pode gerar saída em múltiplos formatos — isso é incrivelmente poderoso para scripts e debugging:
 
 ```bash
-# Visualização em tabela padrão
+# Default table view
 kubectl get pods
 
-# Visualização ampla — mais colunas (nome do node, IP, etc.)
+# Wide view — more columns (node name, IP, etc.)
 kubectl get pods -o wide
 
-# YAML completo — o objeto completo como armazenado no etcd
+# Full YAML — the complete object as stored in etcd
 kubectl get pod <name> -o yaml
 
-# JSON completo
+# Full JSON
 kubectl get pod <name> -o json
 
-# JSONPath — extrair campos específicos
+# JSONPath — extract specific fields
 kubectl get pods -o jsonpath='{.items[*].metadata.name}'
 
-# Colunas personalizadas — construa sua própria tabela
+# Custom columns — build your own table
 kubectl get pods -o custom-columns='NAME:.metadata.name,NODE:.spec.nodeName,STATUS:.status.phase'
 
-# Ordenar por um campo
+# Sort by a field
 kubectl get pods --sort-by=.status.startTime
 
-# Obter apenas os nomes (útil para scripts)
+# Get just the names (useful for scripting)
 kubectl get pods -o name
 ```
 
@@ -226,16 +227,16 @@ Existem duas formas de trabalhar com Kubernetes: imperativa e declarativa. Enten
 ### Imperativo: Executar Comandos Diretamente
 
 ```bash
-# Criar um deployment
+# Create a deployment
 kubectl create deployment nginx --image=nginx:1.27 --replicas=3
 
-# Expô-lo como um service
+# Expose it as a service
 kubectl expose deployment nginx --port=80 --type=NodePort
 
-# Escalá-lo
+# Scale it
 kubectl scale deployment nginx --replicas=5
 
-# Deletá-lo
+# Delete it
 kubectl delete deployment nginx
 ```
 
@@ -246,13 +247,13 @@ Isso parece natural para admins Linux — é como executar `systemctl start`, `u
 ### Declarativo: Aplicar Manifestos YAML
 
 ```bash
-# Aplicar um manifesto (cria ou atualiza)
+# Apply a manifest (creates or updates)
 kubectl apply -f nginx-deployment.yaml
 
-# Aplicar todos os manifestos em um diretório
+# Apply all manifests in a directory
 kubectl apply -f ./manifests/
 
-# Deletar tudo definido em um manifesto
+# Delete everything defined in a manifest
 kubectl delete -f nginx-deployment.yaml
 ```
 
@@ -265,20 +266,20 @@ Esta é a forma nativa do Kubernetes. Você define o desired state em um arquivo
 Antes de aplicar mudanças a um cluster ativo, você pode pré-visualizá-las:
 
 ```bash
-# Dry-run: mostrar o que SERIA enviado ao servidor (sem realmente enviar)
+# Dry-run: show what WOULD be sent to the server (without actually sending it)
 kubectl apply -f nginx-deployment.yaml --dry-run=client -o yaml
 
-# Dry-run do lado do servidor: validar contra o API server sem persistir
+# Server-side dry-run: validate against the API server without persisting
 kubectl apply -f nginx-deployment.yaml --dry-run=server
 
-# Diff: comparar um manifesto local com o que está rodando no cluster
+# Diff: compare a local manifest against what's running in the cluster
 kubectl diff -f nginx-deployment.yaml
 ```
 
 A flag `--dry-run=client` também é ótima para *gerar* manifestos YAML:
 
 ```bash
-# Gerar um YAML de Deployment sem criá-lo
+# Generate a Deployment YAML without creating it
 kubectl create deployment nginx --image=nginx:1.27 --replicas=3 --dry-run=client -o yaml > nginx-deployment.yaml
 ```
 
@@ -296,7 +297,7 @@ Este é um fluxo de trabalho comum: criar imperativamente com dry-run para obter
 | `scp file server:/path` | `kubectl cp file <pod>:/path` | Copia entre sistema de arquivos local e container |
 | `ss -tlnp` | `kubectl get svc` | Lista Services e seus mapeamentos de porta |
 | `cat /etc/systemd/system/nginx.service` | `kubectl get deployment nginx -o yaml` | Mostra a spec completa do desired-state |
-| `top` | `kubectl top pods` | Requer Metrics Server (instalado no lab abaixo) |
+| `top` | `kubectl top pods` | Requer Metrics Server; não é instalado por estes labs |
 | `systemctl restart nginx` | `kubectl rollout restart deployment/nginx` | Aciona um rolling restart de todos os Pods |
 | `systemctl list-units` | `kubectl get all` | Lista tipos de recursos comuns em um namespace |
 | `hostnamectl` | `kubectl get nodes -o wide` | Mostra nomes dos nodes, IPs, SO e versão do kernel |
@@ -307,15 +308,17 @@ Este é um fluxo de trabalho comum: criar imperativamente com dry-run para obter
 >
 > **`kubectl exec` não é SSH.** Parece SSH, mas o Pod pode ser substituído a qualquer momento por um controller. Nunca faça mudanças em produção via exec — mude o manifesto. Qualquer coisa que você faça dentro de um container via exec é *efêmera* e será perdida quando o Pod for recriado.
 >
-> **`kubectl logs` mostra stdout/stderr do container, não logs do sistema.** Não existe um equivalente ao `journalctl` para o cluster em si a partir do kubectl. Logs do kubelet, logs do API server e outros logs de nível de sistema ficam nos nodes e requerem acesso em nível de node para inspeção (ou uma solução de agregação de logs como Fluentd ou Loki).
+> **`kubectl logs` mostra stdout/stderr do container, não todos os logs do sistema.** Componentes do control plane que rodam em containers (incluindo o API server do Kind) podem ser inspecionados com `kubectl logs -n kube-system <pod>`. Os logs do kubelet ficam no journal do node e exigem acesso em nível de node (como no Capítulo 3) ou uma solução de agregação de logs.
 >
-> **Você nunca "loga em um node" para operações normais.** Diferente do SSH onde você conecta a um servidor específico, kubectl conecta ao API server, que faz proxy de tudo. O API server é o ponto de entrada único — você interage com o cluster, não com máquinas individuais. Isso é por design: nodes são gado, não animais de estimação.
+> **Você não "loga em um node" para operações normais de aplicação.** Diferente do SSH, kubectl conecta ao API server para gerenciar objetos do cluster. Para logs, exec e port-forward, o API server se conecta ao kubelet correspondente. Isso não faz o tráfego da aplicação ou as chamadas CRI locais do kubelet passarem pelo API server. A manutenção e a depuração em nível de node ainda podem exigir acesso ao host.
 
 ---
 
 ## Laboratório Diagnóstico: Ficando Confortável com kubectl e Kind
 
 Este é o capítulo prático. Leve seu tempo com este laboratório — o objetivo é que kubectl pareça natural ao final.
+
+Use as ferramentas Kind v0.31.0 e kubectl v1.35.0 do Capítulo 1. A imagem de node Kubernetes v1.35.0 fixada abaixo é o snapshot para ensino, não uma recomendação de versão de patch para produção. Se você já criou `first-cluster` no exemplo anterior, reutilize-o e pule o Passo 1; não execute a criação do mesmo cluster duas vezes.
 
 ### Passo 1: Crie um Cluster Kind Multi-Node
 
@@ -335,7 +338,8 @@ EOF
 Crie o cluster:
 
 ```bash
-kind create cluster --name first-cluster --config kind-config.yaml
+kind create cluster --name first-cluster --config kind-config.yaml \
+  --image kindest/node:v1.35.0@sha256:452d707d4862f52530247495d180205e029056831160e22870e37e3f6c1ac31f
 ```
 
 ---
@@ -345,19 +349,23 @@ kind create cluster --name first-cluster --config kind-config.yaml
 Familiarize-se com o que você está trabalhando:
 
 ```bash
-# Ver todos os nodes e seus detalhes
+# Confirm the lab target even if you reused an existing cluster
+kubectl config use-context kind-first-cluster
+kubectl config set-context --current --namespace=default
+
+# See all nodes and their details
 kubectl get nodes -o wide
 
-# O que está rodando em todo o cluster?
+# What's running across the entire cluster?
 kubectl get pods -A
 
-# Informações do endpoint do cluster
+# Cluster endpoint info
 kubectl cluster-info
 
-# Quais tipos de recursos este cluster suporta?
+# What resource types does this cluster support?
 kubectl api-resources | head -20
 
-# Quantos tipos de recursos estão disponíveis?
+# How many resource types are available?
 kubectl api-resources --no-headers | wc -l
 ```
 
@@ -370,10 +378,11 @@ Demore um momento com `kubectl get pods -A`. Estes são os componentes do sistem
 Crie um Deployment e exponha-o:
 
 ```bash
-# Criar um Deployment com 3 réplicas
+# Create a Deployment with 3 replicas
 kubectl create deployment nginx --image=nginx:1.27 --replicas=3
+kubectl rollout status deployment/nginx --timeout=120s
 
-# Expô-lo como um Service
+# Expose it as a Service
 kubectl expose deployment nginx --port=80 --type=NodePort
 ```
 
@@ -392,23 +401,23 @@ Você deve ver o Deployment, ReplicaSet, 3 Pods e um Service.
 Agora vamos explorar como um admin Linux faria:
 
 ```bash
-# Visão detalhada do Deployment
+# Detailed view of the Deployment
 kubectl describe deployment nginx
 
-# Ver em qual node cada Pod está rodando
+# See which node each Pod is running on
 kubectl get pods -o wide
 
-# Verificar a linha do tempo de eventos (seu log do sistema para o cluster)
+# Check the events timeline (your system log for the cluster)
 kubectl get events --sort-by=.metadata.creationTimestamp
 
-# Ver a spec completa do Deployment
+# View the full Deployment spec
 kubectl get deployment nginx -o yaml
 
-# Extrair apenas a imagem do container com JSONPath
+# Extract just the container image with JSONPath
 kubectl get deployment nginx -o jsonpath='{.spec.template.spec.containers[0].image}'
 ```
 
-Olhe a saída do `kubectl get pods -o wide`. Note como os 3 Pods estão distribuídos entre os worker nodes? Esse é o scheduler fazendo seu trabalho.
+Olhe a saída do `kubectl get pods -o wide`. O scheduler costuma distribuir esses Pods entre os worker nodes, mas este manifesto não exige uma distribuição uniforme. A disponibilidade de recursos e as políticas de agendamento afetam o posicionamento.
 
 ---
 
@@ -417,50 +426,54 @@ Olhe a saída do `kubectl get pods -o wide`. Note como os 3 Pods estão distribu
 **Exec em um Pod (seu substituto do SSH):**
 
 ```bash
-# Obter um shell dentro de um container em execução
+# Get a shell inside a running container
 kubectl exec -it $(kubectl get pods -l app=nginx -o jsonpath='{.items[0].metadata.name}') -- /bin/sh
 ```
 
 Uma vez dentro:
 
 ```sh
-# Verificar a lista de processos (você está dentro de um container)
-ps aux
+# Inspect nginx's main process without ps (not installed in nginx:1.27)
+cat /proc/1/comm
+cat /proc/1/status
 
-# Verificar se o nginx está rodando
+# List visible process command lines using /proc
+for proc in /proc/[0-9]*; do
+  printf '%s: ' "${proc##*/}"
+  tr '\000' ' ' < "$proc/cmdline" 2>/dev/null
+  printf '\n'
+done
+
+# Verify nginx is running
 curl -s localhost
 
-# Verificar o sistema de arquivos
+# Check the filesystem
 ls /etc/nginx/
 
-# Sair do shell
+# Exit the shell
 exit
 ```
 
 **Visualizar logs do container (seu substituto do journalctl):**
 
 ```bash
-# Logs de um Pod específico
+# Logs from a specific Pod
 kubectl logs $(kubectl get pods -l app=nginx -o jsonpath='{.items[0].metadata.name}')
 
-# Seguir logs em tempo real (como journalctl -f)
+# Follow logs in real time (like journalctl -f)
 kubectl logs -f deployment/nginx
 
-# Pressione Ctrl+C para parar de seguir
+# Press Ctrl+C to stop following
 ```
 
 **Port-forward para acessar o Service (seu substituto do túnel SSH):**
 
 ```bash
-# Encaminhar porta local 8080 para a porta 80 do Service
-kubectl port-forward svc/nginx 8080:80 &
-
-# Testar
-curl -s localhost:8080
-
-# Parar o port-forward
-kill %1
+# Keep this running until you see "Forwarding from 127.0.0.1:8080"
+kubectl port-forward svc/nginx 8080:80
 ```
+
+Em um segundo terminal, execute `curl -s localhost:8080`. Depois, pressione `Ctrl+C` no primeiro terminal para encerrar o encaminhamento. Isso não exige mapeamento de portas do Kind nem um NodePort.
 
 ---
 
@@ -500,7 +513,7 @@ Você deve ver 5 Pods.
 kubectl diff -f nginx-deployment.yaml
 ```
 
-Se não há saída (ou apenas diferenças de metadados como `resourceVersion`), o estado do cluster corresponde ao arquivo. Este é o fluxo declarativo: o arquivo é a verdade, e `apply` faz o cluster corresponder.
+Ausência de saída e código de saída 0 significam que não há diferenças; código de saída 1 significa que há diferenças, e valores maiores indicam erro. Campos de runtime exportados, como `resourceVersion`, podem ficar desatualizados conforme os controllers atualizam o objeto. Remova os metadados gerenciados pelo servidor e `status` antes de manter um manifesto exportado no controle de versão; gerar um manifesto limpo evita a maior parte dessa limpeza.
 
 **Gere um manifesto limpo do zero (a abordagem recomendada):**
 
@@ -529,16 +542,16 @@ rm -f nginx-clean.yaml
 ### Passo 7: Limpeza
 
 ```bash
-# Deletar usando o manifesto (declarativo)
+# Delete using the manifest (declarative)
 kubectl delete -f nginx-deployment.yaml
 
-# Deletar o Service
+# Delete the Service
 kubectl delete svc nginx
 
-# Limpar os arquivos locais
+# Clean up the local files
 rm -f nginx-deployment.yaml kind-config.yaml
 
-# Deletar o cluster Kind
+# Delete the Kind cluster
 kind delete cluster --name first-cluster
 ```
 
