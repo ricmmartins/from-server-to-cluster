@@ -123,7 +123,7 @@ Todos os preços incluem uma retentativa gratuita. Certificações são válidas
    ```bash
    alias k=kubectl
    export do="--dry-run=client -o yaml"
-   # Exemplo: k run nginx --image=nginx $do > pod.yaml
+   # Example: k run nginx --image=nginx $do > pod.yaml
    ```
 
 3. **Use `kubectl explain` durante o exame:**
@@ -257,8 +257,10 @@ Prática hands-on é inegociável. Aqui está onde conseguir:
 | Provedor | Oferta Gratuita |
 |----------|---------------|
 | **Azure (AKS)** | Cluster tier gratuito (sem cobranças de control plane) |
-| **Google Cloud (GKE)** | Tier gratuito Autopilot + $300 de crédito para nova conta |
+| **Google Cloud (GKE)** | US$ 74,40/mês por conta de faturamento para **taxas de gerenciamento de cluster** de Autopilot/Standard zonal elegíveis, não para computação dos workloads; novos usuários elegíveis podem receber US$ 300 de crédito de teste válidos por 90 dias |
 | **AWS (EKS)** | Sem tier gratuito para EKS (mas tier gratuito EC2 para autogerenciado) |
+
+O crédito de gerenciamento do GKE **não** torna gratuitos os workloads do Autopilot: computação, armazenamento, rede e outros recursos podem gerar cobranças. Ele não se aplica às taxas de gerenciamento de clusters Standard regionais nem acumula crédito não utilizado. O teste separado do Google Cloud de US$ 300/90 dias é para novos usuários elegíveis que nunca se inscreveram no teste nem foram clientes pagantes de Google Cloud, Google Maps Platform ou Firebase; há restrições de produtos. Confira os [preços e termos atuais do nível gratuito do GKE](https://cloud.google.com/kubernetes-engine/pricing#free-tier) e a [elegibilidade e expiração do teste](https://cloud.google.com/free/docs/free-cloud-features#free-trial) antes de provisionar. Ofertas de control plane gratuito de outros provedores também não implicam computação de workers, discos ou load balancers gratuitos. Defina orçamentos/alertas e remova recursos faturáveis depois da prática.
 
 ---
 
@@ -326,10 +328,14 @@ Você não precisa das quatro. Escolha baseado no seu caminho de carreira:
 
 ### Lab 1: Configure Seu Ambiente de Prática
 
+**Pré-requisitos:** Kind **v0.31.0**, kubectl **v1.35.0**, Bash (por exemplo, WSL2 no Windows), um daemon Docker em execução com containers Linux/cgroup v2, internet e CPU/RAM/disco suficientes para quatro nodes. A imagem Kubernetes **v1.35.0** está fixada no digest publicado na [versão Kind v0.31.0](https://github.com/kubernetes-sigs/kind/releases/tag/v0.31.0). Esta base reproduzível de ensino não é uma política de patches de produção: use o patch mais recente com suporte da versão minor escolhida para produção e confira separadamente o ambiente atual do exame. Comandos e resultados esperados são instruções de prática, não uma alegação de validação em runtime.
+
 **Passo 1 — Criar um cluster multi-nó para prática estilo exame:**
 
 ```bash
-kind create cluster --name exam-prep --config - <<EOF
+kind create cluster --name exam-prep \
+  --image kindest/node:v1.35.0@sha256:452d707d4862f52530247495d180205e029056831160e22870e37e3f6c1ac31f \
+  --config - <<EOF
 kind: Cluster
 apiVersion: kind.x-k8s.io/v1alpha4
 nodes:
@@ -343,11 +349,11 @@ EOF
 **Passo 2 — Configurar autocompletion do kubectl (essencial para velocidade no exame):**
 
 ```bash
-# Para bash
+# For bash
 source <(kubectl completion bash)
 echo 'source <(kubectl completion bash)' >> ~/.bashrc
 
-# Criar o alias essencial
+# Create the essential alias
 alias k=kubectl
 complete -o default -F __start_kubectl k
 echo 'alias k=kubectl' >> ~/.bashrc
@@ -357,29 +363,29 @@ echo 'complete -o default -F __start_kubectl k' >> ~/.bashrc
 **Passo 3 — Configurar atalhos estilo exame:**
 
 ```bash
-# Atalho de dry-run para gerar YAML rapidamente
+# Dry-run shortcut for generating YAML quickly
 export do="--dry-run=client -o yaml"
 
-# Exemplos de criação rápida de recursos:
+# Examples of rapid resource creation:
 k run nginx --image=nginx:1.27 $do > pod.yaml
 k create deployment web --image=nginx:1.27 --replicas=3 $do > deploy.yaml
 k create service clusterip web --tcp=80:80 $do > svc.yaml
 
-# Verificar o que foi gerado
+# Verify what was generated
 cat pod.yaml
 ```
 
 **Passo 4 — Praticar `kubectl explain` (disponível durante o exame):**
 
 ```bash
-# Campos de nível superior do recurso
+# Top-level resource fields
 kubectl explain pod.spec
 
-# Campos aninhados
+# Nested fields
 kubectl explain pod.spec.containers.livenessProbe
 kubectl explain deployment.spec.strategy.rollingUpdate
 
-# Listar campos disponíveis em qualquer nível
+# List available fields at any level
 kubectl explain pod.spec --recursive | head -40
 ```
 
@@ -476,11 +482,11 @@ O landscape completo está em https://landscape.cncf.io/ — contém 1000+ proje
 **Passo 3 — Explorar CRDs existentes no seu cluster:**
 
 ```bash
-# Todo cluster Kubernetes tem CRDs de componentes instalados
+# Every Kubernetes cluster has CRDs from installed components
 kubectl get crd
 
-# Em um cluster Kind, você verá CRDs do local-path-provisioner
-# Em um cluster de produção, você veria CRDs dos seus operators instalados
+# In a Kind cluster, you'll see CRDs from the local-path-provisioner
+# In a production cluster, you'd see CRDs from your installed operators
 ```
 
 ---
@@ -522,6 +528,8 @@ kind delete cluster --name exam-prep
 - [Kubernetes Slack](https://slack.k8s.io/)
 - [Killercoda Interactive Labs](https://killercoda.com)
 - [killer.sh Exam Simulator](https://killer.sh)
+- [Preços do GKE — Nível Gratuito](https://cloud.google.com/kubernetes-engine/pricing#free-tier)
+- [Teste Gratuito do Google Cloud](https://cloud.google.com/free/docs/free-cloud-features#free-trial)
 
 ---
 

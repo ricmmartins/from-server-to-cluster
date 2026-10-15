@@ -29,9 +29,9 @@ Isso é como executar cada serviço no seu servidor Linux com seu diretório de 
 ```bash
 mount -t tmpfs tmpfs /var/lib/myapp
 systemctl start myapp
-# myapp grava dados em /var/lib/myapp...
+# myapp writes data to /var/lib/myapp...
 systemctl stop myapp
-# Dados perdidos. Para sempre.
+# Data is gone. Forever.
 ```
 
 Ninguém faria isso em um servidor Linux (pelo menos não para dados que importam). Mas no Kubernetes, esse é o comportamento padrão. Você precisa explicitamente optar pela persistência.
@@ -293,11 +293,18 @@ Snapshots requerem um driver CSI que os suporte — nem todos suportam. Eles sã
 
 ### Pré-requisitos
 
-Certifique-se de que você tem um cluster Kind rodando. Se não, crie um:
+Use um cluster Kind **dedicado, com um único node**, para todos os laboratórios deste capítulo. O Lab 2 usa `hostPath`, que não oferece portabilidade de dados entre nodes: reutilizar um cluster com vários nodes poderia ler silenciosamente o diretório de outro node. Não reutilize um cluster de outro capítulo. Se `storage-lab` já existir, pare e inspecione-o; exclua e recrie o cluster somente depois de aceitar a perda dos dados do laboratório.
+
+As versões de referência didáticas são Kind **v0.31.0**, kubectl **v1.35.0** e Kubernetes **v1.35.0**. As versões `.0` tornam os laboratórios reproduzíveis; em produção, use o patch mais recente com suporte da versão secundária escolhida.
 
 ```bash
-kind create cluster --name storage-lab
+kind create cluster --name storage-lab --image kindest/node:v1.35.0@sha256:452d707d4862f52530247495d180205e029056831160e22870e37e3f6c1ac31f
+kubectl config use-context kind-storage-lab
+kubectl wait --for=condition=Ready nodes --all --timeout=120s
+kubectl get nodes
 ```
+
+Espere exatamente um node, `storage-lab-control-plane`. Aqui, “host” significa o container desse node Kind, não a sua estação de trabalho. Os dados sobrevivem à recriação de Pods, não à exclusão do cluster Kind.
 
 ### Lab 1: emptyDir — Armazenamento Temporário Compartilhado
 
@@ -339,19 +346,19 @@ spec:
 Aplique e verifique:
 
 ```bash
-# Criar o pod
+# Create the pod
 kubectl apply -f emptydir-pod.yaml
 
-# Aguardar até estar rodando
+# Wait for it to be running
 kubectl wait --for=condition=Ready pod/emptydir-demo --timeout=60s
 
-# Verificar que o writer criou o arquivo
+# Verify the writer created the file
 kubectl exec emptydir-demo -c content-writer -- cat /usr/share/nginx/html/index.html
 
-# Verificar que o servidor web pode servi-lo
+# Verify the web server can serve it
 kubectl exec emptydir-demo -c web-server -- curl -s http://localhost:80
 
-# Limpar
+# Clean up
 kubectl delete pod emptydir-demo
 ```
 
@@ -359,7 +366,7 @@ kubectl delete pod emptydir-demo
 
 ### Lab 2: PersistentVolume e PersistentVolumeClaim — Provisionamento Manual
 
-Crie um PV baseado em `hostPath` (adequado para testes locais com Kind), depois reivindique-o com um PVC.
+Crie um PV baseado em `hostPath` (somente no cluster dedicado de node único exigido acima), depois reivindique-o com um PVC. Para armazenamento local em vários nodes, use um PV `local` com afinidade de node obrigatória em vez deste exemplo.
 
 Salve como `pv-demo.yaml`:
 
@@ -376,6 +383,7 @@ spec:
   persistentVolumeReclaimPolicy: Retain
   hostPath:
     path: /mnt/data
+    type: DirectoryOrCreate
 ---
 apiVersion: v1
 kind: PersistentVolumeClaim
@@ -393,10 +401,10 @@ spec:
 Note o `storageClassName: ""` — isso diz ao Kubernetes "não use provisionamento dinâmico; vincule a um PV existente."
 
 ```bash
-# Criar o PV e PVC
+# Create the PV and PVC
 kubectl apply -f pv-demo.yaml
 
-# Verificar que o PVC está vinculado ao PV
+# Check that the PVC is bound to the PV
 kubectl get pv
 kubectl get pvc
 ```
@@ -414,7 +422,7 @@ spec:
   containers:
   - name: writer
     image: busybox:1.36
-    command: ["sh", "-c", "echo 'Data written at '$(date) > /data/message.txt && sleep 3600"]
+    command: ["sh", "-c", "if ! test -e /data/message.txt; then echo \"Data written at $(date)\" > /data/message.txt; fi; sleep 3600"]
     volumeMounts:
     - name: persistent-storage
       mountPath: /data
@@ -425,18 +433,18 @@ spec:
 ```
 
 ```bash
-# Implantar o pod writer
+# Deploy the writer pod
 kubectl apply -f pv-writer.yaml
 kubectl wait --for=condition=Ready pod/pv-writer --timeout=60s
 
-# Verificar que os dados foram gravados
+# Verify data was written
 kubectl exec pv-writer -- cat /data/message.txt
 
-# Deletar o pod (mas NÃO o PVC)
+# Delete the pod (but NOT the PVC)
 kubectl delete pod pv-writer
 
-# Implantar um novo pod que lê do mesmo PVC
-# Salve como pv-reader.yaml:
+# Deploy a new pod that reads from the same PVC
+# Save as pv-reader.yaml:
 cat <<'EOF' | kubectl apply -f -
 apiVersion: v1
 kind: Pod
@@ -458,10 +466,10 @@ EOF
 
 kubectl wait --for=condition=Ready pod/pv-reader --timeout=60s
 
-# Os dados sobreviveram à deleção do pod!
+# The data survived the pod deletion!
 kubectl exec pv-reader -- cat /data/message.txt
 
-# Limpar
+# Clean up
 kubectl delete pod pv-reader
 kubectl delete pvc manual-pvc
 kubectl delete pv manual-pv
@@ -474,7 +482,7 @@ kubectl delete pv manual-pv
 Kind vem com um StorageClass padrão chamado `standard` baseado no Rancher local-path-provisioner. Vamos usá-lo.
 
 ```bash
-# Inspecionar o StorageClass padrão
+# Inspect the default StorageClass
 kubectl get storageclass
 ```
 
@@ -501,14 +509,14 @@ spec:
 ```
 
 ```bash
-# Criar o PVC
+# Create the PVC
 kubectl apply -f dynamic-pvc.yaml
 
-# Verificar status do PVC — ele estará Pending até que um pod o use
-# (porque o volumeBindingMode é WaitForFirstConsumer)
+# Check PVC status — it will be Pending until a pod uses it
+# (because the volumeBindingMode is WaitForFirstConsumer)
 kubectl get pvc dynamic-pvc
 
-# Implantar um pod que usa o PVC
+# Deploy a pod that uses the PVC
 cat <<'EOF' | kubectl apply -f -
 apiVersion: v1
 kind: Pod
@@ -530,16 +538,16 @@ EOF
 
 kubectl wait --for=condition=Ready pod/dynamic-demo --timeout=90s
 
-# Agora verifique novamente — o PVC deve estar Bound
+# Now check again — the PVC should be Bound
 kubectl get pvc dynamic-pvc
 
-# E um PV foi automaticamente criado!
+# And a PV was automatically created!
 kubectl get pv
 
-# Verificar os dados
+# Verify the data
 kubectl exec dynamic-demo -- cat /data/proof.txt
 
-# Limpar
+# Clean up
 kubectl delete pod dynamic-demo
 kubectl delete pvc dynamic-pvc
 ```
@@ -586,8 +594,10 @@ spec:
         - sh
         - -c
         - |
-          echo "I am $(hostname), writing my identity" > /data/identity.txt
-          date >> /data/identity.txt
+          if ! test -e /data/identity.txt; then
+            echo "I am $(hostname), writing my identity" > /data/identity.txt
+            date >> /data/identity.txt
+          fi
           sleep 3600
         volumeMounts:
         - name: data
@@ -603,43 +613,43 @@ spec:
 ```
 
 ```bash
-# Implantar o StatefulSet
+# Deploy the StatefulSet
 kubectl apply -f statefulset-demo.yaml
 
-# Aguardar todos os pods estarem prontos
+# Wait for all pods to be ready
 kubectl rollout status statefulset/stateful-demo --timeout=120s
 
-# Cada pod tem sua própria identidade e seu próprio PVC
+# Each pod has its own identity and its own PVC
 kubectl get pods -l app=stateful-demo
 kubectl get pvc
 
-# Verificar os dados únicos de cada pod
+# Check each pod's unique data
 kubectl exec stateful-demo-0 -- cat /data/identity.txt
 kubectl exec stateful-demo-1 -- cat /data/identity.txt
 kubectl exec stateful-demo-2 -- cat /data/identity.txt
 
-# Deletar um pod — o StatefulSet o recria com o MESMO nome e o MESMO PVC
+# Delete a pod — the StatefulSet recreates it with the SAME name and SAME PVC
 kubectl delete pod stateful-demo-1
 kubectl wait --for=condition=Ready pod/stateful-demo-1 --timeout=60s
 
-# Os dados de antes da deleção ainda estão lá!
+# The data from before the deletion is still there!
 kubectl exec stateful-demo-1 -- cat /data/identity.txt
 
-# Limpar
+# Clean up
 kubectl delete statefulset stateful-demo
 kubectl delete svc stateful-svc
 kubectl delete pvc data-stateful-demo-0 data-stateful-demo-1 data-stateful-demo-2
 ```
 
-**O que acabou de acontecer:** O StatefulSet criou três pods (stateful-demo-0, -1, -2), cada um com seu próprio PVC (data-stateful-demo-0, -1, -2). Quando você deletou o pod -1, o StatefulSet o recriou com o mesmo nome e o reanexou ao mesmo PVC. Os dados sobreviveram. É assim que bancos de dados rodam no Kubernetes — cada réplica tem sua própria identidade e armazenamento persistente.
+**O que acabou de acontecer:** O StatefulSet criou três pods (stateful-demo-0, -1, -2), cada um com seu próprio PVC (data-stateful-demo-0, -1, -2). Quando você deletou o pod -1, o StatefulSet o recriou com o mesmo nome e o reanexou ao mesmo PVC. A verificação `test -e` mantém a identidade e o horário originais, provando que os dados existentes foram lidos, e não reescritos na inicialização. Isso fornece os elementos básicos de identidade e armazenamento para bancos de dados, não replicação ou failover automáticos.
 
 ### Limpeza
 
 ```bash
-# Deletar o cluster Kind quando terminar
+# Delete the Kind cluster when done
 kind delete cluster --name storage-lab
 
-# Remover os arquivos YAML
+# Remove the YAML files
 rm -f emptydir-pod.yaml pv-demo.yaml pv-writer.yaml dynamic-pvc.yaml statefulset-demo.yaml
 ```
 

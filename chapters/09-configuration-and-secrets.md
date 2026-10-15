@@ -34,7 +34,7 @@ kubectl create configmap app-config \
 **A partir de um arquivo:**
 
 ```bash
-# Criar um arquivo de configuração primeiro
+# Create a config file first
 cat <<'EOF' > nginx.conf
 server {
     listen 80;
@@ -192,10 +192,10 @@ kubectl create secret docker-registry my-registry \
 Vamos ser absolutamente claros sobre isso: **codificação base64 NÃO é criptografia.** É codificação, como URL encoding. Qualquer pessoa com acesso ao objeto Secret pode decodificá-lo trivialmente:
 
 ```bash
-# Criar um secret
+# Create a secret
 kubectl create secret generic db-creds --from-literal=password=supersecret
 
-# Ver o YAML bruto
+# View the raw YAML
 kubectl get secret db-creds -o yaml
 ```
 
@@ -263,7 +263,9 @@ Quando montados como arquivos, cada chave se torna um arquivo. A chave `password
 | `kubernetes.io/dockerconfigjson` | Credenciais de registro Docker |
 | `kubernetes.io/basic-auth` | Autenticação básica (username e password) |
 | `kubernetes.io/ssh-auth` | Autenticação SSH (ssh-privatekey) |
-| `kubernetes.io/service-account-token` | Tokens de service account (criados automaticamente) |
+| `kubernetes.io/service-account-token` | Secret legado de token ServiceAccount de longa duração, solicitado manualmente |
+
+Desde o Kubernetes **v1.24**, criar uma ServiceAccount **não** cria automaticamente um Secret de token. O caminho normal de autenticação de Pods usa tokens de curta duração, com rotação, obtidos por **TokenRequest** e montados como **volumes projetados de ServiceAccount**. Para solicitar explicitamente um token de curta duração, use `kubectl create token <serviceaccount-name>` em vez de criar um Secret de token permanente. Desative a montagem automática de credenciais com `automountServiceAccountToken: false` quando o workload não precisar de acesso à API do Kubernetes.
 
 ---
 
@@ -408,7 +410,7 @@ Pense nisso como montar um sistema de arquivos somente-leitura (`mount -o ro`). 
 >
 > - **Secrets NÃO são seguros por padrão.** Eles são codificados em base64 (trivialmente reversível) e armazenados sem criptografia no etcd a menos que você explicitamente habilite criptografia em repouso. Qualquer pessoa com acesso a `kubectl get secret` pode ler suas senhas. Trate Secrets como "ligeiramente melhor que ConfigMaps" para separação de responsabilidades — segurança real requer gerenciadores de secrets externos e políticas RBAC adequadas.
 >
-> - **Não há controle de acesso por chave.** No Linux, você pode `chmod 600 /etc/shadow` e `chmod 644 /etc/passwd` — permissões no nível de arquivo. No Kubernetes, controle de acesso é no nível de namespace/RBAC. Se alguém pode ler Secrets em um namespace, pode ler *todos* os Secrets naquele namespace. Não há equivalente a definir permissões diferentes em chaves individuais dentro de um ConfigMap ou Secret.
+> - **Não há controle de acesso por chave.** O RBAC pode restringir `get` a **objetos** Secret específicos usando `resourceNames`, mas não pode conceder acesso a apenas uma chave de um Secret. Quem pode ler `db-creds` pode ler todas as chaves desse objeto. Separe credenciais em Secrets distintos se leitores diferentes precisarem de acessos diferentes. Permissões amplas de `list`/`watch` sobre Secrets também expõem seu conteúdo; evite conceder esses verbos sem necessidade. Ao usar `resourceNames` com `list`/`watch`, o cliente precisa fornecer um seletor de campo `metadata.name` correspondente. As permissões RBAC são aditivas, portanto outro RoleBinding amplo pode anular o efeito de uma concessão restrita.
 
 ---
 
@@ -416,8 +418,11 @@ Pense nisso como montar um sistema de arquivos somente-leitura (`mount -o ro`). 
 
 ### Pré-requisitos
 
+Use Kind **v0.31.0** e kubectl **v1.35.0** com a versão de referência didática Kubernetes **v1.35.0** abaixo. Essas versões `.0` tornam os laboratórios reproduzíveis; em produção, use o patch mais recente com suporte da versão secundária escolhida.
+
 ```bash
-kind create cluster --name config-lab
+kind create cluster --name config-lab --image kindest/node:v1.35.0@sha256:452d707d4862f52530247495d180205e029056831160e22870e37e3f6c1ac31f
+kubectl config use-context kind-config-lab
 ```
 
 ### Lab 1: Criar e Consumir um ConfigMap
@@ -479,7 +484,7 @@ EOF
 
 kubectl wait --for=condition=Ready pod/env-consumer --timeout=60s
 
-# Verificar as variáveis de ambiente
+# Verify the environment variables
 kubectl exec env-consumer -- env | grep -E 'LOG_LEVEL|DB_HOST|CACHE_TTL'
 ```
 
@@ -506,10 +511,10 @@ EOF
 
 kubectl wait --for=condition=Ready pod/volume-consumer --timeout=60s
 
-# Verificar que o arquivo de config está montado
+# Verify the config file is mounted
 kubectl exec volume-consumer -- cat /etc/nginx/conf.d/nginx.conf
 
-# Testar que o nginx usa nossa config personalizada (o endpoint /health)
+# Test that nginx uses our custom config (the /health endpoint)
 kubectl exec volume-consumer -- curl -s http://localhost/health
 ```
 
@@ -526,12 +531,12 @@ kubectl create secret generic db-creds \
 **Passo 2 — Prove que base64 não é criptografia:**
 
 ```bash
-# Ver o secret bruto
+# View the raw secret
 kubectl get secret db-creds -o yaml
 
-# Decodificar a senha (é por isso que base64 != criptografia)
+# Decode the password (this is why base64 != encryption)
 kubectl get secret db-creds -o jsonpath='{.data.password}' | base64 --decode
-echo  # newline para legibilidade
+echo  # newline for readability
 ```
 
 **Passo 3 — Implante um pod consumindo o Secret como montagem de volume:**
@@ -559,7 +564,7 @@ EOF
 
 kubectl wait --for=condition=Ready pod/secret-consumer --timeout=60s
 
-# Cada chave é um arquivo no caminho de montagem
+# Each key is a file in the mount path
 kubectl exec secret-consumer -- ls /etc/db-creds/
 kubectl exec secret-consumer -- cat /etc/db-creds/password
 ```
@@ -640,7 +645,7 @@ EOF
 
 kubectl wait --for=condition=Ready pod/downward-demo --timeout=60s
 
-# O pod sabe sobre si mesmo sem chamar a API do Kubernetes
+# The pod knows about itself without calling the Kubernetes API
 kubectl exec downward-demo -- env | grep -E 'POD_|NODE_'
 ```
 
@@ -661,7 +666,7 @@ O pod sabe seu próprio nome, namespace, IP, o node onde está rodando, e seu li
 **Passo 1 — Verifique o estado atual:**
 
 ```bash
-# O pod volume-consumer do Lab 1 deve ainda estar rodando
+# The volume-consumer pod from Lab 1 should still be running
 kubectl exec volume-consumer -- cat /etc/nginx/conf.d/nginx.conf | head -3
 ```
 
@@ -694,11 +699,11 @@ kubectl create configmap nginx-config --from-file=nginx.conf=nginx-updated.conf 
 **Passo 3 — Aguarde a propagação e verifique:**
 
 ```bash
-# Montagens de volume atualizam em aproximadamente 60-90 segundos
-echo "Aguardando propagação do ConfigMap (até 90 segundos)..."
+# Volume mounts update within roughly 60-90 seconds
+echo "Waiting for ConfigMap propagation (up to 90 seconds)..."
 sleep 90
 
-# Verificar se o arquivo foi atualizado (procure o bloco location /ready)
+# Check if the file was updated (look for the /ready location)
 kubectl exec volume-consumer -- cat /etc/nginx/conf.d/nginx.conf
 ```
 
@@ -709,18 +714,18 @@ Você deve ver a configuração atualizada com o novo bloco location `/ready`.
 **Passo 4 — Mostre que variáveis de ambiente NÃO atualizam:**
 
 ```bash
-# env-consumer ainda tem os valores originais
+# env-consumer still has the original values
 kubectl exec env-consumer -- env | grep LOG_LEVEL
 
-# Mesmo se atualizarmos o ConfigMap...
+# Even if we update the ConfigMap...
 kubectl patch configmap app-config -p '{"data":{"LOG_LEVEL":"debug"}}'
 
-# ...a variável de ambiente no pod rodando não muda
+# ...the env var in the running pod is unchanged
 sleep 5
 kubectl exec env-consumer -- env | grep LOG_LEVEL
-# Ainda mostra "info", não "debug"
+# Still shows "info", not "debug"
 
-# Apenas um reinício do pod pega o novo valor da variável de ambiente
+# Only a pod restart picks up the new env var value
 kubectl delete pod env-consumer
 cat <<'EOF' | kubectl apply -f -
 apiVersion: v1
@@ -739,16 +744,16 @@ EOF
 
 kubectl wait --for=condition=Ready pod/env-consumer --timeout=60s
 kubectl exec env-consumer -- env | grep LOG_LEVEL
-# Agora mostra "debug"
+# Now shows "debug"
 ```
 
 ### Limpeza
 
 ```bash
-# Deletar o cluster Kind
+# Delete the Kind cluster
 kind delete cluster --name config-lab
 
-# Remover arquivos temporários
+# Remove temp files
 rm -f nginx.conf nginx-updated.conf
 ```
 
@@ -776,6 +781,8 @@ rm -f nginx.conf nginx-updated.conf
 
 - [ConfigMaps](https://kubernetes.io/docs/concepts/configuration/configmap/)
 - [Secrets](https://kubernetes.io/docs/concepts/configuration/secret/)
+- [ServiceAccounts e TokenRequest](https://kubernetes.io/docs/concepts/security/service-accounts/)
+- [RBAC — restrições de resourceNames](https://kubernetes.io/docs/reference/access-authn-authz/rbac/)
 - [Downward API](https://kubernetes.io/docs/concepts/workloads/pods/downward-api/)
 - [Immutable Secrets and ConfigMaps](https://kubernetes.io/docs/concepts/configuration/secret/#secret-immutable)
 - [Managing Secrets Using kubectl](https://kubernetes.io/docs/tasks/configmap-secret/managing-secret-using-kubectl/)

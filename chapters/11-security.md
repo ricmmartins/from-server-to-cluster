@@ -28,7 +28,7 @@ RBAC é a espinha dorsal de autorização do Kubernetes. Foi promovido a GA no K
 Todo pod no Kubernetes roda com uma ServiceAccount. Se você não especificar uma, ele usa a ServiceAccount `default` no namespace. Pense em ServiceAccounts como usuários de sistema no Linux — são identidades para processos, não pessoas.
 
 ```bash
-# Todo namespace recebe uma ServiceAccount 'default' automaticamente
+# Every namespace gets a 'default' ServiceAccount automatically
 kubectl get serviceaccounts
 ```
 
@@ -47,14 +47,14 @@ metadata:
 Uma **Role** define quais ações são permitidas em quais recursos, com escopo para um único namespace. Uma **ClusterRole** faz o mesmo mas em todo o cluster.
 
 ```yaml
-# Uma Role que permite acesso somente leitura a pods em um namespace
+# A Role that permits read-only access to pods in a namespace
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
   namespace: default
   name: pod-reader
 rules:
-- apiGroups: [""]            # "" = grupo de API core
+- apiGroups: [""]            # "" = core API group
   resources: ["pods"]
   verbs: ["get", "list", "watch"]
 ```
@@ -79,7 +79,7 @@ rules:
 Roles definem permissões. Bindings vinculam essas permissões a identidades. Um **RoleBinding** concede uma Role dentro de um namespace específico. Um **ClusterRoleBinding** concede uma ClusterRole em todos os namespaces.
 
 ```yaml
-# Vincular a Role pod-reader à ServiceAccount my-app
+# Bind the pod-reader Role to the my-app ServiceAccount
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
@@ -143,12 +143,12 @@ Para cada namespace, você pode configurar Pod Security Admission em três modos
 Você aplica via labels no namespace:
 
 ```bash
-# Aplicar o perfil restricted em um namespace
+# Enforce the restricted profile on a namespace
 kubectl label namespace secure-ns \
   pod-security.kubernetes.io/enforce=restricted \
   pod-security.kubernetes.io/enforce-version=latest
 
-# Avisar sobre violações do baseline (mas não bloquear)
+# Warn about baseline violations (but don't block)
 kubectl label namespace dev-ns \
   pod-security.kubernetes.io/warn=baseline \
   pod-security.kubernetes.io/warn-version=latest
@@ -181,17 +181,17 @@ metadata:
 spec:
   podSelector:
     matchLabels:
-      app: backend            # Esta política se aplica a pods com app=backend
+      app: backend            # This policy applies to pods with app=backend
   policyTypes:
   - Ingress
   ingress:
   - from:
     - podSelector:
         matchLabels:
-          app: frontend       # Permitir tráfego DE pods com app=frontend
+          app: frontend       # Allow traffic FROM pods with app=frontend
     ports:
     - protocol: TCP
-      port: 80                # Apenas na porta 80
+      port: 80                # Only on port 80
 ```
 
 Isso se lê: "Pods com label `app: backend` aceitam tráfego TCP de entrada na porta 80, mas apenas de pods com label `app: frontend`. Todo outro ingress para pods `backend` é negado."
@@ -201,20 +201,20 @@ Isso se lê: "Pods com label `app: backend` aceitam tráfego TCP de entrada na p
 O padrão de NetworkPolicy mais importante é a **negação padrão** — bloquear todo o tráfego, depois liberar seletivamente:
 
 ```yaml
-# Negar padrão TODA entrada no namespace
+# Default deny ALL ingress in the namespace
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
   name: default-deny-ingress
   namespace: default
 spec:
-  podSelector: {}             # Selector vazio = aplica a TODOS os pods
+  podSelector: {}             # Empty selector = applies to ALL pods
   policyTypes:
-  - Ingress                   # Bloquear todo tráfego de entrada
+  - Ingress                   # Block all incoming traffic
 ```
 
 ```yaml
-# Negar padrão TODA saída no namespace
+# Default deny ALL egress in the namespace
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -223,7 +223,7 @@ metadata:
 spec:
   podSelector: {}
   policyTypes:
-  - Egress                    # Bloquear todo tráfego de saída
+  - Egress                    # Block all outgoing traffic
 ```
 
 > **Importante:** NetworkPolicies requerem um plugin CNI que as suporte. Nem todos os CNIs suportam. O **kindnet** (CNI padrão do Kind) tem suporte limitado a NetworkPolicy. Para produção ou testes completos, use **Calico** ou **Cilium**.
@@ -244,7 +244,7 @@ Por padrão, Kubernetes Secrets são:
 
 ### Criptografia em Repouso
 
-O Kubernetes suporta criptografia de dados de Secret no etcd via um recurso `EncryptionConfiguration`. Isso garante que mesmo se alguém acessar o armazenamento etcd diretamente, os valores dos Secrets estarão criptografados:
+O Kubernetes permite criptografar dados de Secrets no etcd por meio de um arquivo `EncryptionConfiguration` lido pelo API server (não é um recurso para aplicar com kubectl). O primeiro provedor criptografa **novas gravações**; habilitá-lo não criptografa retroativamente os Secrets existentes:
 
 ```yaml
 apiVersion: apiserver.config.k8s.io/v1
@@ -257,10 +257,26 @@ resources:
       keys:
       - name: key1
         secret: <base64-encoded-32-byte-key>
-  - identity: {}       # Fallback: ler dados não criptografados escritos antes da habilitação da criptografia
+  - identity: {}       # Fallback: read unencrypted data written before encryption was enabled
 ```
 
-Isso é configurado no API server via a flag `--encryption-provider-config`. Em serviços Kubernetes gerenciados (AKS, EKS, GKE), a criptografia em repouso é tipicamente habilitada por padrão.
+Isso é configurado no API server pela flag `--encryption-provider-config`, com o arquivo montado como somente leitura no container do API server. Gere uma chave aleatória real de 32 bytes; o placeholder acima não pode ser usado. Proteja o arquivo com permissões restritivas no host. Chaves locais protegem contra comprometimento apenas do etcd, não de um host do control plane; considere criptografia de envelope com KMS em produção.
+
+Para um cluster autogerenciado, siga o [procedimento oficial de migração da criptografia](https://kubernetes.io/docs/tasks/administer-cluster/encrypt-data/):
+
+1. Faça backup do etcd e guarde uma cópia segura da configuração de criptografia e das chaves **separadamente** do snapshot. Um snapshot com Secrets criptografados não pode ser recuperado sem as chaves de descriptografia.
+2. Distribua uma configuração compatível e todas as chaves de descriptografia necessárias para **todos os API servers** antes de permitir que qualquer um grave com uma nova chave. Em uma implantação inicial por etapas, carregue primeiro `identity` como primeiro provedor, com o novo provedor/chave disponível para leitura em todas as instâncias; depois mova a criptografia para a primeira posição e faça outro rollout. Siga o procedimento oficial, verificando a saúde e a leitura de Secrets em cada instância; não mantenha servidores incapazes de descriptografar as gravações uns dos outros.
+3. Depois que todos os API servers usarem o primeiro provedor/chave desejado, regrave os Secrets existentes em **todos os namespaces** para criptografá-los. Um administrador autorizado pode usar o pipeline abaixo em uma sessão controlada; ele transmite objetos Secret da API em texto puro, portanto evite rastreamento de comandos do shell, logs e arquivos intermediários:
+
+   ```bash
+   kubectl get secrets --all-namespaces -o json | kubectl replace -f -
+   ```
+
+   Resolva conflitos/erros e repita até migrar todos os Secrets existentes; clusters grandes precisam de uma migração controlada em lotes.
+4. Verifique tanto as leituras pela API quanto a **representação bruta no etcd**, seguindo as etapas oficiais: um novo Secret de teste e os Secrets existentes regravados devem ter o prefixo de armazenamento `k8s:enc:aescbc:v1:`, não dados em texto puro. Uma leitura pela API não comprova a criptografia, pois o API server descriptografa os dados. Não exponha valores reais de Secrets na saída do terminal.
+5. Mantenha as chaves antigas de descriptografia até verificar a migração e até que todos os backups retidos que dependam delas tenham expirado ou sido migrados. Snapshots antigos ainda podem conter Secrets em texto puro; criptografe e restrinja também o acesso aos backups.
+
+O fallback `identity` permite ler dados antigos em texto puro durante a migração; sua presença não comprova que a migração terminou. Em serviços Kubernetes gerenciados (AKS, EKS, GKE), confirme os padrões de criptografia do provedor, a propriedade das chaves e os procedimentos de recuperação, em vez de editar API servers gerenciados pelo provedor.
 
 ### Gerenciamento Externo de Secrets
 
@@ -285,25 +301,26 @@ kind: Pod
 metadata:
   name: secure-pod
 spec:
-  securityContext:                    # Configurações no nível do pod
-    runAsNonRoot: true                # Recusar iniciar se a imagem rodar como root
-    runAsUser: 1000                   # Rodar como UID 1000
-    runAsGroup: 3000                  # Rodar como GID 3000
-    fsGroup: 2000                     # Grupo suplementar para montagem de volumes
+  securityContext:                    # Pod-level settings
+    runAsNonRoot: true                # Refuse to start if image runs as root
+    runAsUser: 1000                   # Run as UID 1000
+    runAsGroup: 3000                  # Run as GID 3000
+    fsGroup: 2000                     # Supplemental group for volume mounts
     seccompProfile:
-      type: RuntimeDefault            # Aplicar o filtro seccomp padrão do container runtime
+      type: RuntimeDefault            # Apply the container runtime's default seccomp filter
   containers:
   - name: app
-    image: nginx:1.27
-    securityContext:                   # Configurações no nível do container (sobrescrevem o nível do pod)
-      allowPrivilegeEscalation: false # Bloquear bits setuid/setgid
-      readOnlyRootFilesystem: true    # Montar sistema de arquivos raiz como somente leitura
+    image: busybox:1.37
+    command: ["sleep", "3600"]
+    securityContext:                   # Container-level settings (override pod-level)
+      allowPrivilegeEscalation: false # Block setuid/setgid bits
+      readOnlyRootFilesystem: true    # Mount root filesystem as read-only
       capabilities:
         drop:
-        - ALL                         # Remover todas as capabilities Linux
-        add:
-        - NET_BIND_SERVICE            # Adicionar de volta apenas o necessário
+        - ALL                         # Drop all Linux capabilities
 ```
+
+Este é um processo BusyBox em espera que demonstra campos de segurança, **não um servidor nginx endurecido**. Ele não precisa de porta de escuta nem de armazenamento gravável. Um servidor web real exige uma imagem/configuração compatível com seu UID, uma porta não privilegiada e montagens graváveis explícitas para arquivos PID, cache ou temporários; definir um UID arbitrário e um sistema de arquivos raiz somente leitura em uma imagem nginx padrão não basta.
 
 ### Linux Capabilities no Kubernetes
 
@@ -358,6 +375,10 @@ Seccomp (Secure Computing Mode) é um recurso do kernel Linux que restringe quai
 
 ### Pré-requisitos
 
+Use **Kind v0.31.0**, **kubectl v1.35.0** e a imagem de node Kubernetes **v1.35.0** fixada abaixo, publicada na [versão do Kind](https://github.com/kubernetes-sigs/kind/releases/tag/v0.31.0). Esta é uma base reproduzível para ensino, não uma recomendação de patch para produção: em produção, use o patch mais recente com suporte da versão minor escolhida.
+
+Os comandos exigem Bash (por exemplo, WSL2 no Windows), um daemon Docker em execução com containers Linux e cgroup v2, acesso à internet e CPU/RAM/disco suficientes para dois nodes. Use um cluster isolado e descartável e confirme o contexto do kubectl antes de aplicar alterações. Estes exemplos descrevem resultados esperados, não evidências de testes em runtime.
+
 Crie um cluster Kind com Calico para suporte completo a NetworkPolicy:
 
 ```bash
@@ -372,13 +393,14 @@ nodes:
 - role: worker
 EOF
 
-kind create cluster --name security-lab --config kind-security-lab.yaml
+kind create cluster --name security-lab --config kind-security-lab.yaml \
+  --image kindest/node:v1.35.0@sha256:452d707d4862f52530247495d180205e029056831160e22870e37e3f6c1ac31f
 ```
 
-Instale o CNI Calico:
+Instale o CNI Calico fixado na versão **v3.31.4**. A [matriz oficial de requisitos e compatibilidade do Calico 3.31](https://docs.tigera.io/calico/3.31/getting-started/kubernetes/requirements#supported-versions) lista explicitamente o Kubernetes **1.32, 1.33, 1.34 e 1.35** como versões testadas. Verifique também o suporte do kernel e a ausência de sobreposição entre redes de Pods, Services e hosts. Essa declaração de compatibilidade do projeto não significa que esta combinação de Kind/CNI tenha sido testada em runtime aqui:
 
 ```bash
-kubectl apply -f https://raw.githubusercontent.com/projectcalico/calico/v3.29.3/manifests/calico.yaml
+kubectl apply -f https://raw.githubusercontent.com/projectcalico/calico/v3.31.4/manifests/calico.yaml
 ```
 
 Aguarde os pods do Calico ficarem prontos:
@@ -437,19 +459,19 @@ EOF
 **Passo 4 — Testar as permissões:**
 
 ```bash
-# Deve retornar "yes" — dev-user pode listar pods
+# Should return "yes" — dev-user can list pods
 kubectl auth can-i list pods --as=system:serviceaccount:default:dev-user
 
-# Deve retornar "yes" — dev-user pode obter pods
+# Should return "yes" — dev-user can get pods
 kubectl auth can-i get pods --as=system:serviceaccount:default:dev-user
 
-# Deve retornar "no" — dev-user não pode deletar pods
+# Should return "no" — dev-user cannot delete pods
 kubectl auth can-i delete pods --as=system:serviceaccount:default:dev-user
 
-# Deve retornar "no" — dev-user não pode criar deployments
+# Should return "no" — dev-user cannot create deployments
 kubectl auth can-i create deployments --as=system:serviceaccount:default:dev-user
 
-# Deve retornar "no" — dev-user não pode obter secrets
+# Should return "no" — dev-user cannot get secrets
 kubectl auth can-i get secrets --as=system:serviceaccount:default:dev-user
 ```
 
@@ -532,24 +554,23 @@ EOF
 ```bash
 kubectl get pods -n secure-ns
 kubectl exec -n secure-ns compliant-pod -- id
-kubectl exec -n secure-ns compliant-pod -- whoami
 ```
 
-O pod roda como UID 1000 — um usuário não-root.
+O pod roda como UID 1000 — um usuário não-root. Um UID numérico arbitrário não precisa ter uma entrada em `/etc/passwd`, portanto `whoami` não é uma verificação confiável aqui.
 
 ### Lab 3: NetworkPolicy
 
 **Passo 1 — Fazer deploy de duas aplicações (frontend e backend):**
 
 ```bash
-# Deploy do backend
+# Deploy backend
 kubectl run backend --image=nginx:1.27 --labels="app=backend" --port=80
 kubectl expose pod backend --port=80 --target-port=80
 
-# Deploy do frontend (um pod de longa duração para testar conectividade)
+# Deploy frontend (a long-lived pod for testing connectivity)
 kubectl run frontend --image=busybox:1.37 --labels="app=frontend" -- sleep 3600
 
-# Aguardar os pods ficarem prontos
+# Wait for pods to be ready
 kubectl wait --for=condition=Ready pod/backend --timeout=60s
 kubectl wait --for=condition=Ready pod/frontend --timeout=60s
 ```
@@ -623,11 +644,11 @@ Você deve ver a página de boas-vindas do nginx novamente. A política de white
 **Passo 7 — Verificar que outros pods ainda não conseguem alcançar o backend:**
 
 ```bash
-# Criar um pod sem a label frontend
+# Create a pod without the frontend label
 kubectl run outsider --image=busybox:1.37 --labels="app=outsider" -- sleep 3600
 kubectl wait --for=condition=Ready pod/outsider --timeout=60s
 
-# Tentar alcançar o backend — deve dar timeout
+# Try to reach backend — should timeout
 kubectl exec outsider -- wget -qO- --timeout=5 http://backend
 ```
 
@@ -666,19 +687,19 @@ EOF
 **Passo 2 — Verificar que as restrições de segurança estão ativas:**
 
 ```bash
-# Verificar UID e GID — deve ser uid=1000, gid=3000
+# Check UID and GID — should be uid=1000, gid=3000
 kubectl exec hardened-pod -- id
 
-# Tentar escrever no sistema de arquivos raiz — deve falhar (somente leitura)
+# Try to write to the root filesystem — should fail (read-only)
 kubectl exec hardened-pod -- touch /test
 
-# Tentar escrever em /tmp — também falha (todo o FS raiz é somente leitura)
+# Try to write to /tmp — also fails (entire root FS is read-only)
 kubectl exec hardened-pod -- touch /tmp/test
 ```
 
 Os comandos `touch` devem falhar com "Read-only file system." O container só pode escrever em volumes montados explicitamente como graváveis (emptyDir, PVC).
 
-**Passo 3 — Verificar que o pod tem as configurações de QoS mais estritas refletidas:**
+**Passo 3 — Inspecionar as configurações de segurança do pod (não são configurações de QoS):**
 
 ```bash
 kubectl get pod hardened-pod -o jsonpath='{.spec.securityContext}' | python -m json.tool
@@ -687,7 +708,7 @@ kubectl get pod hardened-pod -o jsonpath='{.spec.securityContext}' | python -m j
 ### Limpeza
 
 ```bash
-# Deletar todos os recursos do lab
+# Delete all lab resources
 kubectl delete pod frontend backend outsider hardened-pod --ignore-not-found
 kubectl delete svc backend --ignore-not-found
 kubectl delete networkpolicy default-deny-ingress allow-frontend-to-backend --ignore-not-found
@@ -696,10 +717,10 @@ kubectl delete role pod-reader --ignore-not-found
 kubectl delete serviceaccount dev-user --ignore-not-found
 kubectl delete namespace secure-ns --ignore-not-found
 
-# Deletar o cluster Kind
+# Delete the Kind cluster
 kind delete cluster --name security-lab
 
-# Remover o arquivo de configuração do cluster
+# Remove the cluster config file
 rm -f kind-security-lab.yaml
 ```
 

@@ -73,7 +73,7 @@ A parte mais difícil de aprender Kubernetes não é a tecnologia — é a mudan
 - "Preciso de **3 cópias** do nginx rodando **em algum lugar** no cluster"
 - "Preciso de um **Service** que roteie tráfego para qualquer Pod nginx saudável"
 - "Preciso de **armazenamento persistente** que sobreviva a reinícios de Pod, independente de em qual node ele rode"
-- "Se um Pod cair, o **Deployment controller** vai substituí-lo automaticamente"
+- "Se um container cair, o **kubelet** o reinicia de acordo com sua política de reinício; se um Pod de um Deployment for perdido, seu **ReplicaSet controller** cria um substituto"
 
 Perceba a mudança: você para de se preocupar com *qual máquina específica* roda sua carga de trabalho. Você declara *o que quer* (3 réplicas do nginx, armazenamento persistente, um endpoint de rede), e o Kubernetes descobre o *onde* e o *como*.
 
@@ -113,6 +113,10 @@ Cada capítulo inclui:
 
 Antes de mergulhar, vamos garantir que seu ambiente está pronto. Você vai precisar de Docker e Kind instalados — ambos rodam em Linux (ou WSL2 no Windows).
 
+**Versões de referência dos labs:** Kind **v0.31.0**, Kubernetes **v1.35.0** e kubectl **v1.35.0**. Todos os comandos de criação de cluster fixam a imagem oficial do node por digest para que os labs usem o mesmo snapshot. Essas versões `.0` são um recorte para ensino, **não uma recomendação de usar a versão inicial de uma série em produção**; clusters de produção precisam de versões com suporte e correções de segurança atualizadas.
+
+Os comandos deste livro usam um shell Bash no Linux (incluindo WSL2), containers Linux e cgroups v2. Com o Docker Desktop, certifique-se de que o engine Linux esteja rodando e de que a integração com WSL esteja habilitada para sua distribuição. A CLI do Docker pode rodar no WSL enquanto o daemon e os processos dos containers rodam no ambiente Linux separado do Docker Desktop.
+
 ### Passo 1: Verificar o Docker
 
 ```bash
@@ -126,7 +130,7 @@ Você deve ver as versões do Client e do Server. Se o Docker não estiver insta
 Kind (Kubernetes IN Docker) roda um cluster Kubernetes completo dentro de containers Docker. É a maneira mais rápida de ter um cluster local:
 
 ```bash
-# Para Linux (amd64)
+# For Linux (amd64)
 curl -Lo ./kind https://kind.sigs.k8s.io/dl/v0.31.0/kind-linux-amd64
 chmod +x ./kind
 sudo mv ./kind /usr/local/bin/kind
@@ -145,7 +149,7 @@ kind version
 kubectl é a ferramenta de linha de comando para interagir com clusters Kubernetes — pense nele como seu `systemctl` para o cluster:
 
 ```bash
-curl -LO "https://dl.k8s.io/release/$(curl -Ls https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
+curl -LO "https://dl.k8s.io/release/v1.35.0/bin/linux/amd64/kubectl"
 chmod +x kubectl
 sudo mv kubectl /usr/local/bin/kubectl
 ```
@@ -161,14 +165,17 @@ kubectl version --client
 ### Passo 4: Criar Seu Primeiro Cluster
 
 ```bash
-kind create cluster --name from-server-to-cluster
+kind create cluster --name from-server-to-cluster \
+  --image kindest/node:v1.35.0@sha256:452d707d4862f52530247495d180205e029056831160e22870e37e3f6c1ac31f
 ```
 
-Isso cria um cluster Kubernetes de um único node rodando dentro de um container Docker. Você deve ver uma saída terminando com:
+Isso cria um cluster Kubernetes de um único node rodando dentro de um container Docker. A saída inclui:
 
 ```
 Set kubectl context to "kind-from-server-to-cluster"
 ```
+
+> **Fonte:** [Imagem de node padrão do Kind v0.31.0](https://raw.githubusercontent.com/kubernetes-sigs/kind/v0.31.0/pkg/apis/config/defaults/image.go)
 
 ### Passo 5: Verificar o Cluster
 

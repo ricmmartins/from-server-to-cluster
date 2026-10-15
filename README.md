@@ -108,10 +108,24 @@ flowchart TB
 - [Docker](https://docs.docker.com/get-docker/) instalado
 - [Kind](https://kind.sigs.k8s.io/docs/user/quick-start/#installation) instalado
 - [kubectl](https://kubernetes.io/docs/tasks/tools/) instalado
-- [Helm](https://helm.sh/docs/intro/install/) (a partir do Capítulo 10)
+- [Helm v3.19.0](https://helm.sh/docs/intro/install/) (a partir do Capítulo 10)
 - 8 GB de RAM mínimo (16 GB recomendado)
 
-Todos os laboratórios foram testados no **Kubernetes v1.32** com Kind. Exemplos específicos de cloud usam AKS, EKS e GKE como variantes.
+A **base reproduzível dos laboratórios** é Kind **v0.31.0**, kubectl **v1.35.0** e
+`kindest/node:v1.35.0@sha256:452d707d4862f52530247495d180205e029056831160e22870e37e3f6c1ac31f`.
+O Capítulo 1 instala essas versões; os comandos de criação de cluster selecionam a imagem do node explicitamente.
+O patch `.0` é um recorte fixo para ensino, **não uma recomendação de patch para produção**:
+clusters de produção devem usar o patch suportado mais recente compatível com o provedor e os add-ons.
+A base anterior, Kubernetes 1.32, chegou ao fim do suporte upstream em 28 de fevereiro de 2026.
+
+Use clusters descartáveis nos laboratórios, nunca contextos de produção. Cada capítulo informa
+requisitos adicionais, como mapeamentos de portas, um CNI capaz de aplicar NetworkPolicy ou drivers de armazenamento cloud.
+Os exemplos cloud consultam as versões suportadas na região selecionada; a base local não garante
+disponibilidade nem preços nos provedores.
+
+Consulte o [registro de correções técnicas](docs/technical-review.md) para conhecer as decisões
+da revisão de outubro de 2026, o escopo da validação e as verificações de runtime ainda pendentes.
+Validação estática não comprova que todos os laboratórios revisados foram executados de ponta a ponta.
 
 ## Conteúdo em Inglês
 

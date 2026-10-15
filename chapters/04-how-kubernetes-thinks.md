@@ -42,10 +42,10 @@ Se o nginx travar, o systemd percebe e o reinicia. O "desired state" é "nginx d
 
 O Kubernetes faz isso para *tudo*, não apenas para reiniciar processos:
 
-- Quer 3 réplicas? Um controller garante que sempre haja exatamente 3.
+- Quer 3 réplicas? Os controllers trabalham para chegar a essa contagem; falhas e rollouts podem mudar temporariamente o número em execução.
 - Quer um Service roteando para pods saudáveis? Um controller atualiza os endpoints quando pods vão e vêm.
 - Quer um volume montado? Um controller o anexa ao node correto.
-- Quer um node drenado? Um controller remove pods e respeita disruption budgets.
+- Quer um node drenado? `kubectl drain` o marca como não agendável e solicita evictions dos Pods, respeitando disruption budgets para essas interrupções voluntárias.
 
 ### Declarando o Desired State
 
@@ -116,20 +116,24 @@ Vamos rastrear o que acontece quando você executa `kubectl apply` no deployment
 9. O **kubelet** em cada node selecionado percebe novos Pods atribuídos a ele
 10. Cada kubelet baixa a imagem do container e inicia o container
 
-São pelo menos cinco controllers diferentes, cada um fazendo um pequeno trabalho, encadeados pelo padrão de reconciliação. Nenhum deles conhece os outros. Eles apenas observam mudanças nos objetos com os quais se preocupam e reagem.
+São vários loops de controle cooperando, cada um fazendo um pequeno trabalho, encadeados pelo padrão de reconciliação. Eles se coordenam por objetos da API, em vez de chamar funções internas uns dos outros.
 
 ### O Que Acontece Quando um Pod Morre
 
 Agora suponha que um node falhe e leve um dos três pods consigo:
 
-1. O **Node controller** detecta que o node não está respondendo (via heartbeats perdidos)
-2. Ele marca o node como `NotReady`
-3. O **ReplicaSet controller** percebe que agora há apenas 2 pods rodando, mas a contagem desejada é 3
-4. Ele cria um novo objeto Pod
-5. O **Scheduler** o coloca em um node saudável
-6. O **kubelet** o inicia
+1. Após a perda de heartbeats, o **node controller** muda a condição `Ready` do node para `Unknown` (exibida como `NotReady` pelo kubectl) e adiciona uma taint `unreachable`
+2. Os Pods afetados permanecem vinculados durante seu período de toleration. Por padrão, Pods comuns recebem **tolerations de 300 segundos** para `node.kubernetes.io/not-ready` e `node.kubernetes.io/unreachable`
+3. Quando a toleration `NoExecute` correspondente expira, o **taint-eviction controller** solicita a exclusão dos Pods afetados
+4. O **ReplicaSet controller** cria objetos Pod substitutos para restaurar a contagem desejada
+5. O **scheduler** tenta posicionar os substitutos em nodes saudáveis e elegíveis com capacidade não requisitada suficiente
+6. O **kubelet** inicia os novos containers quando as imagens, a rede e qualquer armazenamento necessário estão prontos
 
-Você não fez nada. Você não foi acionado. O sistema se auto-curou porque todo controller continuou verificando: "A realidade corresponde à spec?"
+Isso é recuperação automática, **não failover imediato**. Considere o tempo de detecção de falha, o período de toleration, os limites de taxa de eviction, o agendamento e a inicialização. Sem capacidade de sobra ou armazenamento compatível, os substitutos podem ficar Pending. Um node isolado por uma partição de rede pode até continuar executando os containers antigos até se reconectar, então workloads com estado precisam de proteção contra escritores simultâneos. Você ainda precisa de alertas e planejamento de disponibilidade.
+
+Se apenas um container cai em um node saudável, seu kubelet normalmente o reinicia no mesmo Pod de acordo com `restartPolicy`; isso é diferente de substituir um Pod perdido.
+
+> **Fonte:** [Taints e Tolerations — Evictions Baseadas em Taints](https://kubernetes.io/docs/concepts/scheduling-eviction/taint-and-toleration/#taint-based-evictions)
 
 ---
 
@@ -188,23 +192,23 @@ Selectors são consultas contra labels. É como controllers, Services e você (v
 **Selectors baseados em igualdade:**
 
 ```bash
-# Encontrar todos os pods em produção
+# Find all pods in production
 kubectl get pods -l env=production
 
-# Encontrar todos os pods que NÃO estão em produção
-kubectl get pods -l env!=production
+# Find all pods NOT in production
+kubectl get pods -l 'env!=production'
 ```
 
 **Selectors baseados em conjunto:**
 
 ```bash
-# Encontrar pods em staging ou produção
+# Find pods in either staging or production
 kubectl get pods -l 'env in (staging, production)'
 
-# Encontrar pods com um label "team" (qualquer valor)
+# Find pods with a "team" label (any value)
 kubectl get pods -l team
 
-# Encontrar pods sem um label "deprecated"
+# Find pods without a "deprecated" label
 kubectl get pods -l '!deprecated'
 ```
 
@@ -219,7 +223,7 @@ metadata:
   name: web-frontend
 spec:
   selector:
-    app: web-frontend    # "encontre todos os Pods com este label"
+    app: web-frontend    # "find all Pods with this label"
   ports:
   - port: 80
     targetPort: 80
@@ -236,7 +240,7 @@ Annotations também são metadados chave-valor, mas com um propósito diferente.
 ```yaml
 metadata:
   annotations:
-    description: "Frontend principal voltado ao cliente"
+    description: "Main customer-facing frontend"
     git-commit: "a1b2c3d4"
     config.kubernetes.io/managed-by: "kustomize"
 ```
@@ -292,22 +296,22 @@ Todo cluster começa com quatro namespaces:
 ### Trabalhando com Namespaces
 
 ```bash
-# Listar todos os namespaces
+# List all namespaces
 kubectl get namespaces
 
-# Criar um namespace
+# Create a namespace
 kubectl create namespace staging
 
-# Deploy em um namespace específico
+# Deploy to a specific namespace
 kubectl apply -f deployment.yaml -n staging
 
-# Listar pods em um namespace específico
+# List pods in a specific namespace
 kubectl get pods -n staging
 
-# Listar pods em TODOS os namespaces
+# List pods in ALL namespaces
 kubectl get pods -A
 
-# Definir seu namespace padrão (para não precisar digitar -n toda vez)
+# Set your default namespace (so you don't have to type -n every time)
 kubectl config set-context --current --namespace=staging
 ```
 
@@ -327,7 +331,7 @@ Você *não* precisa de namespaces para cada pequena diferença. Diferentes vers
 
 O **kube-scheduler** é o componente que decide em qual node um Pod roda. Toda vez que um novo Pod é criado sem atribuição de node, o scheduler escolhe um.
 
-No Linux, você pode usar `taskset` para fixar um processo em CPUs específicas, ou `nice` para ajustar a prioridade. O scheduling do Kubernetes é o equivalente em nível de cluster — mas em vez de CPUs em uma máquina, você está escolhendo entre nodes em um cluster.
+No Linux, você pode usar `taskset` para fixar um processo em CPUs específicas, ou `nice` para ajustar a prioridade de escalonamento de CPU. O scheduling do Kubernetes escolhe **nodes**, não fatias de tempo de CPU. Resource requests e limits não substituem `nice` e não definem a prioridade de agendamento de um Pod.
 
 ### Como o Scheduler Decide
 
@@ -350,10 +354,12 @@ resources:
     cpu: "500m"
 ```
 
-- **Requests** são o que o scheduler usa para posicionamento. "Este Pod precisa de pelo menos 128Mi de memória e 250m de CPU." O scheduler só coloca o Pod em um node que tenha recursos *não requisitados* suficientes.
-- **Limits** são o máximo que o Pod pode consumir. Se um container exceder seu limit de memória, ele sofre OOM-kill. Se exceder seu limit de CPU, ele é limitado (throttled).
+- **Requests** são o que o scheduler contabiliza durante o posicionamento. Aqui, ele contabiliza 128Mi de memória e 250m de CPU para o container. Os requests devem caber nos recursos *alocáveis* de um node após subtrair os requests existentes; isso não é uma verificação de CPU ociosa ou RAM livre no momento.
+- **Limits** restringem o consumo em tempo de execução. Quotas de CPU limitam um container que esgota seu orçamento de CPU; limites de memória são aplicados de forma reativa e podem causar um OOM kill quando não é possível atender às alocações dentro do limite.
 
-Isso mapeia diretamente para cgroups do Linux. Por baixo dos panos, o kubelet traduz requests e limits em configurações de cgroup no node. Requests se tornam reservas de cgroup; limits se tornam limites rígidos de cgroup.
+No Linux, o kubelet e o runtime aplicam os limits via cgroups. Um request de CPU também influencia as parcelas proporcionais de CPU (`cpu.weight` no cgroups v2) **sob contenção**. Ele não reserva fisicamente nem fixa uma CPU, e um container pode usar mais do que seu request quando a capacidade e os limits permitem. Um request de memória serve para contabilização no agendamento e nas evictions, não é RAM física pré-alocada. Não presuma que ele habilite a proteção `memory.low` por padrão. A prioridade do Pod é um mecanismo separado (`PriorityClass`).
+
+> **Fonte:** [Gerenciamento de Recursos para Pods e Containers](https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/)
 
 ### Node Affinity
 
@@ -381,11 +387,11 @@ Existe também `preferredDuringSchedulingIgnoredDuringExecution`, que é uma pre
 Taints são o *oposto* da affinity — elas permitem que um node *repila* Pods.
 
 ```bash
-# Aplicar taint em um node: "este node é apenas para workloads GPU"
+# Taint a node: "this node is for GPU workloads only"
 kubectl taint nodes gpu-node-1 workload=gpu:NoSchedule
 ```
 
-Agora, apenas Pods com uma toleration correspondente podem ser agendados ali:
+Agora, apenas Pods com uma toleration correspondente podem passar nessa verificação de taint (eles ainda precisam atender às outras verificações do scheduler):
 
 ```yaml
 spec:
@@ -443,7 +449,7 @@ Não existe um equivalente direto no Linux para isso — é uma preocupação em
 
 > **Onde a Analogia com Linux Quebra**
 >
-> **Consistência eventual, não execução imediata.** Linux é imediato: você executa um comando, ele acontece agora. Kubernetes é eventualmente consistente — você submete um desired state, e controllers trabalham em direção a ele assincronamente. Você pode esperar segundos ou minutos para o sistema convergir. Isso não é um bug; é o design. Sistemas distribuídos *devem* ser eventualmente consistentes.
+> **Reconciliação assíncrona, não execução imediata.** Até serviços locais no Linux levam tempo para iniciar. O Kubernetes adiciona loops de controle independentes: você submete um estado desejado, e os controllers trabalham em direção a ele de forma assíncrona. Você pode esperar segundos ou minutos para as workloads convergirem. Isso não significa que todo armazenamento distribuído tenha consistência eventual — o etcd usa consenso fortemente consistente.
 >
 > **O manifesto é a fonte da verdade, não o estado em execução.** Não existe um "SSH e conserte" como escape para operações normais. Se você modificar manualmente um Pod em execução (digamos, instalando um pacote via `kubectl exec`), o controller sobrescreverá suas mudanças na próxima vez que recriar o Pod. O manifesto YAML no controle de versão é a única fonte da verdade. Se não está no manifesto, não existe.
 >
@@ -460,13 +466,15 @@ Este laboratório demonstra os conceitos centrais deste capítulo usando um clus
 Certifique-se de ter um cluster Kind rodando:
 
 ```bash
-kind create cluster --name chapter04
+kind create cluster --name chapter04 \
+  --image kindest/node:v1.35.0@sha256:452d707d4862f52530247495d180205e029056831160e22870e37e3f6c1ac31f
 ```
 
 Verifique se está pronto:
 
 ```bash
 kubectl cluster-info --context kind-chapter04
+kubectl config set-context --current --namespace=default
 ```
 
 ---
@@ -477,6 +485,7 @@ kubectl cluster-info --context kind-chapter04
 
 ```bash
 kubectl create deployment nginx --image=nginx:1.27 --replicas=3
+kubectl rollout status deployment/nginx --timeout=120s
 ```
 
 **Passo 2 — Verifique que os Pods estão rodando:**
@@ -490,7 +499,7 @@ Você deve ver 3 Pods no estado `Running`.
 **Passo 3 — Delete um Pod e observe-o voltar:**
 
 ```bash
-# Escolha um dos nomes de Pod da saída acima
+# Pick one of the Pod names from the output above
 kubectl delete pod $(kubectl get pods -l app=nginx -o jsonpath='{.items[0].metadata.name}')
 ```
 
@@ -506,6 +515,7 @@ Você verá um novo Pod com um nome diferente sendo criado (ou já rodando). O R
 
 ```bash
 kubectl scale deployment nginx --replicas=5
+kubectl rollout status deployment/nginx --timeout=120s
 ```
 
 Observe os novos Pods aparecerem:
@@ -539,13 +549,13 @@ Todo Pod criado pelo Deployment já tem `app=nginx` — é assim que o ReplicaSe
 **Passo 2 — Adicione labels personalizados:**
 
 ```bash
-# Rotule dois pods como staging
+# Label two pods as staging
 POD1=$(kubectl get pods -l app=nginx -o jsonpath='{.items[0].metadata.name}')
 POD2=$(kubectl get pods -l app=nginx -o jsonpath='{.items[1].metadata.name}')
 kubectl label pod $POD1 env=staging
 kubectl label pod $POD2 env=staging
 
-# Rotule o restante como production
+# Label the rest as production
 kubectl label pod $(kubectl get pods -l app=nginx -o jsonpath='{.items[2].metadata.name}') env=production
 kubectl label pod $(kubectl get pods -l app=nginx -o jsonpath='{.items[3].metadata.name}') env=production
 kubectl label pod $(kubectl get pods -l app=nginx -o jsonpath='{.items[4].metadata.name}') env=production
@@ -554,16 +564,16 @@ kubectl label pod $(kubectl get pods -l app=nginx -o jsonpath='{.items[4].metada
 **Passo 3 — Consulte por label:**
 
 ```bash
-# Todos os pods de staging
+# All staging pods
 kubectl get pods -l env=staging
 
-# Todos os pods de production
+# All production pods
 kubectl get pods -l env=production
 
-# Todos os pods com um label "env" (qualquer valor)
+# All pods with an "env" label (any value)
 kubectl get pods -l env
 
-# Pods que são TANTO nginx QUANTO production
+# Pods that are BOTH nginx AND production
 kubectl get pods -l app=nginx,env=production
 ```
 
@@ -578,10 +588,12 @@ kubectl expose deployment nginx --port=80 --name=nginx-prod --type=ClusterIP --o
 Verifique quais Pods o Service selecionou:
 
 ```bash
-kubectl describe svc nginx-prod | grep Endpoints
+kubectl get pods -l app=nginx,env=production -o wide
+kubectl get endpointslices -l kubernetes.io/service-name=nginx-prod \
+  -o jsonpath='{range .items[*].endpoints[*]}{.addresses[0]}{" ready="}{.conditions.ready}{"\n"}{end}'
 ```
 
-Você deve ver apenas os IPs dos 3 Pods com label de produção.
+Depois que o EndpointSlice controller reconciliar o estado, você deve ver apenas os IPs dos 3 Pods com label de produção. Somente endpoints prontos recebem tráfego normal do Service.
 
 Limpe o Service:
 
@@ -610,11 +622,11 @@ kubectl create deployment web --image=nginx:1.27 -n team-beta
 **Passo 3 — Mostre que são independentes:**
 
 ```bash
-# Cada namespace tem seu próprio deployment "web"
+# Each namespace has its own "web" deployment
 kubectl get deployments -n team-alpha
 kubectl get deployments -n team-beta
 
-# Pods têm nomes e IPs diferentes
+# Pods have different names and IPs
 kubectl get pods -o wide -n team-alpha
 kubectl get pods -o wide -n team-beta
 ```
@@ -622,11 +634,11 @@ kubectl get pods -o wide -n team-beta
 **Passo 4 — Demonstre o escopo de nomes:**
 
 ```bash
-# Isso funciona — "web" existe em ambos os namespaces independentemente
+# This works — "web" exists in both namespaces independently
 kubectl get deployment web -n team-alpha
 kubectl get deployment web -n team-beta
 
-# Mas no namespace default, não existe "web"
+# But in the default namespace, there's no "web"
 kubectl get deployment web 2>&1 || true
 ```
 
@@ -701,10 +713,10 @@ Você verá um aviso como:
 **Passo 4 — Corrija rotulando o node:**
 
 ```bash
-# Rotule o node
+# Label the node
 kubectl label node chapter04-control-plane disktype=nvme
 
-# Observe o Pod ser agendado
+# Watch the Pod get scheduled
 kubectl get pod picky-pod -w
 ```
 
