@@ -53,7 +53,7 @@ spec:
 
 When you need tightly coupled processes, multi-container Pods make sense. The most common patterns:
 
-**Sidecar containers** — A helper that runs alongside the main application. Examples: log shippers, service mesh proxies, TLS termination. Native sidecar containers (using `initContainers` with `restartPolicy: Always`) were introduced as alpha in v1.28, beta in v1.29, and graduated to stable (GA) in v1.31. They ensure the sidecar starts before and stops after the main container.
+**Sidecar containers** — A helper that runs alongside the main application. Examples: log shippers, service mesh proxies, TLS termination. Native sidecar containers (using `initContainers` with `restartPolicy: Always`) were introduced as alpha in v1.28, beta in v1.29, and graduated to stable (GA) in v1.33. They ensure the sidecar starts before and stops after the main container.
 
 **Init containers** — Run to completion *before* the main containers start. Used for setup tasks: waiting for a database to be ready, populating a shared volume, running migrations.
 
@@ -198,7 +198,30 @@ StatefulSets provide guarantees that Deployments don't:
 
 Think of this like named database servers on Linux: you don't have "some database server" — you have `db-primary`, `db-replica-1`, `db-replica-2`, each with its own data directory on a dedicated disk.
 
+The following teaching example requires a default StorageClass. First create a lab-only Secret from a generated password file, without putting a password in source control or a command-line argument (Bash with OpenSSL):
+
+```bash
+(umask 077; openssl rand -hex 32 | tr -d '\n' > db-password)
+kubectl create secret generic db-credentials --from-file=password=db-password
+rm -f db-password
+```
+
+Do not commit or print the generated value. Kubernetes Secrets still need RBAC and encryption at rest (Chapter 9); production credentials belong in a managed secret workflow. Apply both the Headless Service and StatefulSet below in the same namespace as the Secret:
+
 ```yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: db-headless
+spec:
+  clusterIP: None
+  selector:
+    app: db
+  ports:
+  - name: postgres
+    port: 5432
+    targetPort: 5432
+---
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
@@ -217,6 +240,12 @@ spec:
       containers:
       - name: db
         image: postgres:16
+        env:
+        - name: POSTGRES_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: db-credentials
+              key: password
         ports:
         - containerPort: 5432
         volumeMounts:
@@ -233,6 +262,8 @@ spec:
 ```
 
 The `volumeClaimTemplates` field is unique to StatefulSets — it creates a separate PersistentVolumeClaim for each Pod (`data-db-0`, `data-db-1`, `data-db-2`). Even if a Pod is deleted and recreated, it reattaches to the same volume.
+
+**Three Pods are not PostgreSQL replication.** This manifest initializes three independent databases with separate data directories. StatefulSets provide identity, ordering, and storage, not database replication, leader election, backups, or failover. Use database-specific configuration or a maintained PostgreSQL operator for those capabilities; do not treat this example as a highly available database.
 
 ---
 
@@ -402,9 +433,9 @@ kubectl rollout history deployment/nginx
 
 ## Pod Disruption Budgets (PDB)
 
-Rolling updates are voluntary disruptions — you chose to do them. But disruptions also happen during node drains (for maintenance or upgrades), cluster autoscaling, and other administrative operations.
+Rolling updates and direct Pod deletions are voluntary disruptions, but **PDBs do not limit either operation**. A PDB constrains requests through the **Eviction API**, such as normal `kubectl drain` operations and eviction-based cluster scale-down.
 
-A **PodDisruptionBudget** tells Kubernetes: "During voluntary disruptions, never let fewer than N Pods be available."
+A **PodDisruptionBudget** tells eviction clients: "Reject an eviction that would leave fewer than N selected Pods available."
 
 ```yaml
 apiVersion: policy/v1
@@ -418,7 +449,9 @@ spec:
       app: nginx
 ```
 
-With this PDB and 3 replicas, Kubernetes will only drain one Pod at a time from the nginx Deployment. If draining a node would violate the budget, the drain operation blocks until it's safe.
+With this PDB and 3 healthy, available replicas, at most one selected Pod can be unavailable before further evictions are blocked. If draining a node would violate the budget, the drain operation waits until it's safe.
+
+Direct `kubectl delete pod`, controller rollouts, and involuntary failures can still reduce availability beyond the budget. Configure Deployment `maxUnavailable`/`maxSurge` (or the workload's update strategy) separately; a PDB is not a universal availability guarantee.
 
 You can specify either:
 - **`minAvailable`** — Minimum Pods that must remain running (absolute number or percentage)
@@ -454,6 +487,8 @@ You can specify either:
 
 ### Prerequisites
 
+Use the book's lab snapshot: Kind **v0.31.0**, kubectl **v1.35.0**, and Kubernetes **v1.35.0** with the pinned node image below. These `.0` versions are a reproducible teaching snapshot, not a production patch recommendation; production should use the latest supported patch of its chosen minor.
+
 Make sure your Kind cluster from Chapter 5 is running:
 
 ```bash
@@ -463,7 +498,7 @@ kind get clusters
 If not, create one:
 
 ```bash
-kind create cluster --name lab-cluster --config - <<EOF
+kind create cluster --name lab-cluster --image kindest/node:v1.35.0@sha256:452d707d4862f52530247495d180205e029056831160e22870e37e3f6c1ac31f --config - <<EOF
 kind: Cluster
 apiVersion: kind.x-k8s.io/v1alpha4
 nodes:
@@ -471,6 +506,12 @@ nodes:
 - role: worker
 - role: worker
 EOF
+```
+
+Select the intended cluster before running any lab commands:
+
+```bash
+kubectl config use-context kind-lab-cluster
 ```
 
 ---
@@ -938,7 +979,7 @@ rm -f pod.yaml deployment.yaml daemonset.yaml job.yaml cronjob.yaml probe-test.y
 
 6. **Probes are your three-layer health check system.** Liveness restarts broken containers. Readiness controls traffic flow. Startup gives slow applications time to initialize. Configure them for every production workload.
 
-7. **Pod Disruption Budgets protect your applications during planned maintenance.** Without a PDB, a `kubectl drain` can take down all your replicas simultaneously.
+7. **Pod Disruption Budgets constrain eviction-based maintenance.** Normal `kubectl drain` respects them; direct deletion, controller rollouts, and failures do not. Configure rollout availability separately.
 
 ---
 
@@ -946,6 +987,7 @@ rm -f pod.yaml deployment.yaml daemonset.yaml job.yaml cronjob.yaml probe-test.y
 
 - [Pods](https://kubernetes.io/docs/concepts/workloads/pods/)
 - [Init Containers](https://kubernetes.io/docs/concepts/workloads/pods/init-containers/)
+- [Sidecar Containers — stable since v1.33](https://kubernetes.io/docs/concepts/workloads/pods/sidecar-containers/)
 - [Deployments](https://kubernetes.io/docs/concepts/workloads/controllers/deployment/)
 - [ReplicaSets](https://kubernetes.io/docs/concepts/workloads/controllers/replicaset/)
 - [DaemonSets](https://kubernetes.io/docs/concepts/workloads/controllers/daemonset/)

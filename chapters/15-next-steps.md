@@ -257,8 +257,10 @@ Hands-on practice is non-negotiable. Here's where to get it:
 | Provider | Free Offering |
 |----------|---------------|
 | **Azure (AKS)** | Free tier cluster (no control plane charges) |
-| **Google Cloud (GKE)** | Autopilot free tier + $300 new account credit |
+| **Google Cloud (GKE)** | US$74.40/month per billing account toward eligible Autopilot/zonal Standard **cluster management fees**, not workload compute; eligible new users can receive US$300 trial credit valid for 90 days |
 | **AWS (EKS)** | No free tier for EKS (but free EC2 tier for self-managed) |
+
+The GKE management credit does **not** make Autopilot workloads free: compute, storage, networking, and other resources can incur charges. It does not apply to Regional Standard cluster management fees or carry over unused credit. The separate US$300/90-day Google Cloud trial is for eligible new users who have not previously signed up for the trial or been paying Google Cloud, Google Maps Platform, or Firebase users; product restrictions apply. Verify current [GKE pricing and free-tier terms](https://cloud.google.com/kubernetes-engine/pricing#free-tier) and [trial eligibility and expiry](https://cloud.google.com/free/docs/free-cloud-features#free-trial) before provisioning. Other providers' free control-plane offers likewise do not imply free worker compute, disks, or load balancers. Set budgets/alerts and remove billable resources after practice.
 
 ---
 
@@ -325,10 +327,14 @@ You don't need all four. Pick based on your career path:
 
 ### Lab 1: Set Up Your Practice Environment
 
+**Prerequisites:** Kind **v0.31.0**, kubectl **v1.35.0**, Bash (for example, WSL2 on Windows), a running Docker daemon with Linux containers/cgroup v2, internet access, and enough CPU/RAM/disk for four nodes. The Kubernetes **v1.35.0** image is pinned to the digest published in the [Kind v0.31.0 release](https://github.com/kubernetes-sigs/kind/releases/tag/v0.31.0). This reproducible teaching baseline is not a production patch policy: use the latest supported patch of the chosen production minor and check the current exam environment separately. Commands and expected results are practice instructions, not a claim of runtime validation.
+
 **Step 1 — Create a multi-node cluster for exam-style practice:**
 
 ```bash
-kind create cluster --name exam-prep --config - <<EOF
+kind create cluster --name exam-prep \
+  --image kindest/node:v1.35.0@sha256:452d707d4862f52530247495d180205e029056831160e22870e37e3f6c1ac31f \
+  --config - <<EOF
 kind: Cluster
 apiVersion: kind.x-k8s.io/v1alpha4
 nodes:
@@ -521,6 +527,8 @@ kind delete cluster --name exam-prep
 - [Kubernetes Slack](https://slack.k8s.io/)
 - [Killercoda Interactive Labs](https://killercoda.com)
 - [killer.sh Exam Simulator](https://killer.sh)
+- [GKE Pricing — Free Tier](https://cloud.google.com/kubernetes-engine/pricing#free-tier)
+- [Google Cloud Free Trial](https://cloud.google.com/free/docs/free-cloud-features#free-trial)
 
 ---
 

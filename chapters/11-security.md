@@ -244,7 +244,7 @@ By default, Kubernetes Secrets are:
 
 ### Encryption at Rest
 
-Kubernetes supports encrypting Secret data in etcd via an `EncryptionConfiguration` resource. This ensures that even if someone accesses the etcd storage directly, the Secret values are encrypted:
+Kubernetes supports encrypting Secret data in etcd via an `EncryptionConfiguration` file read by the API server (not a resource to apply with kubectl). The first provider encrypts **new writes**; enabling it does not retroactively encrypt existing Secrets:
 
 ```yaml
 apiVersion: apiserver.config.k8s.io/v1
@@ -260,7 +260,23 @@ resources:
   - identity: {}       # Fallback: read unencrypted data written before encryption was enabled
 ```
 
-This is configured on the API server via the `--encryption-provider-config` flag. In managed Kubernetes services (AKS, EKS, GKE), encryption at rest is typically enabled by default.
+This is configured on the API server via the `--encryption-provider-config` flag, with the file mounted read-only into the API server container. Generate a real random 32-byte key; the placeholder above is not usable. Protect the file with restrictive host permissions. Local keys protect against an etcd-only compromise, not compromise of a control plane host; consider KMS-backed envelope encryption for production.
+
+For a self-managed cluster, follow the official [encryption migration procedure](https://kubernetes.io/docs/tasks/administer-cluster/encrypt-data/):
+
+1. Back up etcd and securely back up the encryption configuration and keys **separately** from the snapshot. A snapshot containing encrypted Secrets cannot be recovered without its decryption keys.
+2. Distribute compatible configuration and all required decryption keys to **every API server** before allowing any of them to write with a new key. For a staged initial rollout, first load `identity` as the first provider with the new encryption provider/key available for reads on all instances, then move encryption first and roll out again. Follow the official procedure, verifying health and Secret reads through each instance; do not leave a mixture of servers that cannot decrypt each other's writes.
+3. After every API server uses the intended first provider/key, rewrite existing Secrets in **all namespaces** so they are encrypted. An authorized administrator can use the following pipeline in a controlled session; it streams plaintext Secret API objects, so avoid shell tracing, logging, and intermediate files:
+
+   ```bash
+   kubectl get secrets --all-namespaces -o json | kubectl replace -f -
+   ```
+
+   Resolve conflicts/errors and repeat until all existing Secrets have been migrated; large clusters need a controlled, batched migration.
+4. Verify both API reads and the **raw etcd representation** using the official verification steps: a new test Secret and rewritten existing Secrets should have the `k8s:enc:aescbc:v1:` storage prefix, not plaintext data. An API read alone cannot prove encryption because the API server decrypts it. Do not expose real Secret values in terminal output.
+5. Retain old decryption keys until migration is verified and every retained backup that needs them has expired or been migrated. Older snapshots may still contain plaintext Secrets; encrypt and restrict access to backups as well.
+
+The `identity` fallback permits reading old plaintext during migration; it is not evidence that migration is complete. In managed Kubernetes services (AKS, EKS, GKE), confirm the provider's encryption defaults, key ownership, and recovery procedures rather than editing provider-managed API servers.
 
 ### External Secret Management
 
@@ -294,16 +310,17 @@ spec:
       type: RuntimeDefault            # Apply the container runtime's default seccomp filter
   containers:
   - name: app
-    image: nginx:1.27
+    image: busybox:1.37
+    command: ["sleep", "3600"]
     securityContext:                   # Container-level settings (override pod-level)
       allowPrivilegeEscalation: false # Block setuid/setgid bits
       readOnlyRootFilesystem: true    # Mount root filesystem as read-only
       capabilities:
         drop:
         - ALL                         # Drop all Linux capabilities
-        add:
-        - NET_BIND_SERVICE            # Add back only what's needed
 ```
+
+This is a sleeping BusyBox process demonstrating security fields, **not a hardened nginx server**. It needs neither a listening port nor writable storage. A real web server needs an image/configuration compatible with its UID, an unprivileged listening port, and explicit writable mounts for any PID, cache, or temporary files; setting a stock nginx image to an arbitrary UID with a read-only root filesystem is not enough.
 
 ### Linux Capabilities in Kubernetes
 
@@ -358,6 +375,10 @@ Seccomp (Secure Computing Mode) is a Linux kernel feature that restricts which s
 
 ### Prerequisites
 
+Use **Kind v0.31.0**, **kubectl v1.35.0**, and the Kubernetes **v1.35.0** node image pinned below, as published in the [Kind release](https://github.com/kubernetes-sigs/kind/releases/tag/v0.31.0). This is a reproducible teaching baseline, not a production patch recommendation: production should use the latest supported patch of its chosen minor release.
+
+The commands require Bash (for example, WSL2 on Windows), a running Docker daemon with Linux containers and cgroup v2, internet access, and enough CPU/RAM/disk for two nodes. Use an isolated disposable cluster and confirm your kubectl context before applying changes. These examples describe expected results, not runtime test evidence.
+
 Create a Kind cluster with Calico for full NetworkPolicy support:
 
 ```bash
@@ -372,13 +393,14 @@ nodes:
 - role: worker
 EOF
 
-kind create cluster --name security-lab --config kind-security-lab.yaml
+kind create cluster --name security-lab --config kind-security-lab.yaml \
+  --image kindest/node:v1.35.0@sha256:452d707d4862f52530247495d180205e029056831160e22870e37e3f6c1ac31f
 ```
 
-Install Calico CNI:
+Install Calico CNI pinned to **v3.31.4**. The official [Calico 3.31 requirements and compatibility matrix](https://docs.tigera.io/calico/3.31/getting-started/kubernetes/requirements#supported-versions) explicitly lists Kubernetes **1.32, 1.33, 1.34, and 1.35** as tested versions. Also check kernel support and non-overlapping Pod, Service, and host networks. This upstream compatibility declaration is not a claim that this Kind/CNI combination was runtime-tested here:
 
 ```bash
-kubectl apply -f https://raw.githubusercontent.com/projectcalico/calico/v3.29.3/manifests/calico.yaml
+kubectl apply -f https://raw.githubusercontent.com/projectcalico/calico/v3.31.4/manifests/calico.yaml
 ```
 
 Wait for Calico pods to become ready:
@@ -532,10 +554,9 @@ EOF
 ```bash
 kubectl get pods -n secure-ns
 kubectl exec -n secure-ns compliant-pod -- id
-kubectl exec -n secure-ns compliant-pod -- whoami
 ```
 
-The pod runs as UID 1000 — a non-root user.
+The pod runs as UID 1000 — a non-root user. An arbitrary numeric UID need not have an `/etc/passwd` entry, so `whoami` is not a reliable check here.
 
 ### Lab 3: NetworkPolicy
 
@@ -678,7 +699,7 @@ kubectl exec hardened-pod -- touch /tmp/test
 
 The `touch` commands should fail with "Read-only file system." The container can only write to explicitly mounted writable volumes (emptyDir, PVC).
 
-**Step 3 — Check that the pod has the strictest QoS settings reflected:**
+**Step 3 — Inspect the pod's security settings (these are not QoS settings):**
 
 ```bash
 kubectl get pod hardened-pod -o jsonpath='{.spec.securityContext}' | python -m json.tool

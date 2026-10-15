@@ -263,7 +263,9 @@ When mounted as files, each key becomes a file. The `password` key becomes `/etc
 | `kubernetes.io/dockerconfigjson` | Docker registry credentials |
 | `kubernetes.io/basic-auth` | Basic authentication (username and password) |
 | `kubernetes.io/ssh-auth` | SSH authentication (ssh-privatekey) |
-| `kubernetes.io/service-account-token` | Service account tokens (auto-created) |
+| `kubernetes.io/service-account-token` | Legacy, manually requested long-lived ServiceAccount token Secret |
+
+Since Kubernetes **v1.24**, creating a ServiceAccount does **not** automatically create a token Secret. The normal Pod authentication path uses short-lived, rotating tokens obtained through **TokenRequest** and mounted as **projected ServiceAccount volumes**. For an explicit short-lived token, use `kubectl create token <serviceaccount-name>` rather than creating a permanent token Secret. Disable automatic credential mounting with `automountServiceAccountToken: false` when the workload does not need Kubernetes API access.
 
 ---
 
@@ -408,7 +410,7 @@ Think of it as mounting a filesystem read-only (`mount -o ro`). You can read it,
 >
 > - **Secrets are NOT secure by default.** They're base64-encoded (trivially reversible) and stored unencrypted in etcd unless you explicitly enable encryption at rest. Anyone with `kubectl get secret` access can read your passwords. Treat Secrets as "slightly better than ConfigMaps" for separation of concerns — real security requires external secret managers and proper RBAC policies.
 >
-> - **There's no per-key access control.** On Linux, you can `chmod 600 /etc/shadow` and `chmod 644 /etc/passwd` — file-level permissions. In Kubernetes, access control is at the namespace/RBAC level. If someone can read Secrets in a namespace, they can read *all* Secrets in that namespace. There's no equivalent of setting different permissions on individual keys within a ConfigMap or Secret.
+> - **There's no per-key access control.** RBAC can restrict `get` to particular Secret **objects** using `resourceNames`, but cannot grant access to only one key within a Secret. A reader of `db-creds` can read every key in that object. Split credentials into separate Secrets if different readers need different access. Broad `list`/`watch` on Secrets exposes their contents too; avoid granting these verbs unnecessarily. If using `resourceNames` with `list`/`watch`, the client must supply a matching `metadata.name` field selector. RBAC permissions are additive, so another broad RoleBinding can defeat a narrow grant.
 
 ---
 
@@ -416,8 +418,11 @@ Think of it as mounting a filesystem read-only (`mount -o ro`). You can read it,
 
 ### Prerequisites
 
+Use Kind **v0.31.0** and kubectl **v1.35.0** with the Kubernetes **v1.35.0** teaching snapshot below. These `.0` pins are for reproducible labs; production should use the latest supported patch of its chosen minor.
+
 ```bash
-kind create cluster --name config-lab
+kind create cluster --name config-lab --image kindest/node:v1.35.0@sha256:452d707d4862f52530247495d180205e029056831160e22870e37e3f6c1ac31f
+kubectl config use-context kind-config-lab
 ```
 
 ### Lab 1: Create and Consume a ConfigMap
@@ -776,6 +781,8 @@ rm -f nginx.conf nginx-updated.conf
 
 - [ConfigMaps](https://kubernetes.io/docs/concepts/configuration/configmap/)
 - [Secrets](https://kubernetes.io/docs/concepts/configuration/secret/)
+- [ServiceAccounts and TokenRequest](https://kubernetes.io/docs/concepts/security/service-accounts/)
+- [RBAC — resourceNames restrictions](https://kubernetes.io/docs/reference/access-authn-authz/rbac/)
 - [Downward API](https://kubernetes.io/docs/concepts/workloads/pods/downward-api/)
 - [Immutable Secrets and ConfigMaps](https://kubernetes.io/docs/concepts/configuration/secret/#secret-immutable)
 - [Managing Secrets Using kubectl](https://kubernetes.io/docs/tasks/configmap-secret/managing-secret-using-kubectl/)

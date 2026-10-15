@@ -38,16 +38,16 @@ Memory is specified in bytes, typically using suffixes:
 - `256Mi` = 256 mebibytes
 - `1Gi` = 1 gibibyte
 
-Under the hood, this configures the container's cgroup `memory.max`. If a container exceeds its memory limit, the Linux OOM killer terminates it immediately — no warning, no graceful shutdown.
+Under the hood, a memory limit configures the container's cgroup `memory.max` on cgroup v2. The kernel attempts memory reclaim when allocations encounter the limit; if it cannot satisfy an allocation within the cgroup limit, a cgroup OOM can kill a process without graceful shutdown. Crossing a sampled usage value is not an instantaneous, deterministic kill trigger.
 
 ### Requests vs. Limits
 
 | | Requests | Limits |
 |---|---------|--------|
-| **What it means** | Guaranteed minimum | Maximum allowed |
+| **What it means** | Scheduling reservation and resource-sharing input | Enforcement boundary |
 | **Who uses it** | Scheduler (for pod placement) | Kubelet/kernel (for enforcement) |
 | **CPU behavior** | Node must have this much CPU available to schedule the pod | Container is throttled beyond this |
-| **Memory behavior** | Node must have this much memory available to schedule the pod | Container is OOMKilled beyond this |
+| **Memory behavior** | Scheduler accounts for this reservation against allocatable memory | Reclaim, then possible cgroup OOM if allocations cannot be satisfied |
 | **Linux cgroup equivalent** | `cpu.weight` / scheduling guarantee | `cpu.max` / `memory.max` |
 
 ```yaml
@@ -65,22 +65,22 @@ spec:
         memory: "64Mi"     # Guarantee: 64 MiB
       limits:
         cpu: "200m"        # Ceiling: 20% of a core
-        memory: "128Mi"    # Ceiling: 128 MiB (OOMKill if exceeded)
+        memory: "128Mi"    # Cgroup limit: reclaim, then possible OOM
 ```
 
-**Critical rule:** Always set requests. Always set limits. Pods without resource specifications are the first to be evicted under pressure, and they make capacity planning impossible.
+**Critical rule:** Set realistic requests for capacity planning and memory limits based on measured needs. Choose CPU limits according to workload throttling and isolation requirements. Missing requests can lead to overcommit; they do not by themselves establish an absolute eviction order.
 
 ---
 
-## QoS Classes: Eviction Priority
+## QoS Classes, Eviction, and OOM
 
-Based on how you set requests and limits, Kubernetes assigns each pod a **Quality of Service (QoS) class** that determines its eviction priority when the node runs low on resources. This is the Kubernetes equivalent of Linux's OOM killer priorities (`oom_score_adj`).
+Based on CPU and memory requests and limits, Kubernetes assigns each pod a **Quality of Service (QoS) class**. QoS influences Linux OOM scoring (`oom_score_adj`), but **kubelet node-pressure eviction is a separate mechanism**, not a total ordering by QoS class. For the container-level configurations used here:
 
-| QoS Class | Condition | Eviction Priority | Linux Analogy |
+| QoS Class | Condition | Memory-Pressure Tendency (Not a Guarantee) | Linux OOM Adjustment |
 |-----------|-----------|-------------------|---------------|
-| **Guaranteed** | `requests == limits` for all containers | Last to be evicted | `oom_score_adj = -997` |
-| **Burstable** | `requests < limits` for at least one container | Medium priority | `oom_score_adj` varies |
-| **BestEffort** | No requests or limits set at all | **First to be evicted** | `oom_score_adj = 1000` |
+| **Guaranteed** | Nonzero CPU **and** memory requests and limits, equal for every container | Usually protected while usage stays within requests | `oom_score_adj = -997` |
+| **Burstable** | At least one CPU/memory request or limit, but not Guaranteed | Depends on usage versus requests and Pod Priority | `oom_score_adj` varies |
+| **BestEffort** | No CPU or memory requests or limits for any container | Any memory usage exceeds its zero request | `oom_score_adj = 1000` |
 
 ```yaml
 # Guaranteed QoS — requests equal limits
@@ -110,13 +110,15 @@ resources:
 resources: {}
 ```
 
-When a node runs out of memory, the kubelet evicts pods in this order: BestEffort first, then Burstable (starting with the ones using the most memory relative to their request), then Guaranteed last. It's triage — just like the Linux OOM killer, but with Kubernetes-level awareness of pod priorities.
+For node-pressure eviction, the kubelet first attempts node-level resource reclamation (for example, deleting unused images under disk pressure). If eviction is still necessary, it ranks pods by **whether usage of the starved resource exceeds requests**, then **Pod Priority**, then **usage relative to requests**. BestEffort and Burstable pods exceeding memory requests can be considered together; Guaranteed is not immunity. Disk-pressure ranking depends on the filesystem and ephemeral-storage usage, not CPU/memory QoS. For PID or inode pressure, priority matters because those resources have no requests.
+
+If memory is exhausted before kubelet eviction can act, the kernel OOM killer selects a victim using memory usage and `oom_score_adj`. A container can also suffer a **cgroup-local OOM at its memory limit while the node has free memory**. Inspect termination reasons, cgroup events, and node pressure separately; see the official [node-pressure eviction criteria](https://kubernetes.io/docs/concepts/scheduling-eviction/node-pressure-eviction/#pod-selection-for-kubelet-eviction).
 
 ---
 
 ## LimitRange: Namespace-Level Defaults
 
-What happens when a developer deploys a pod without specifying resources? Without guardrails, it becomes a BestEffort pod that can consume unlimited resources and is the first to be evicted. **LimitRange** solves this by setting default resource values and constraints per namespace.
+What happens when a developer deploys a pod without specifying resources? Without injected defaults, it becomes BestEffort, with no CPU/memory limit of its own (still subject to node/ancestor constraints) and high exposure under memory pressure. **LimitRange** sets default resource values and constraints per namespace.
 
 ```yaml
 apiVersion: v1
@@ -288,7 +290,8 @@ Key concepts:
 | Metric | What It Tells You |
 |--------|-------------------|
 | `container_cpu_usage_seconds_total` | CPU consumption per container |
-| `container_memory_working_set_bytes` | Actual memory in use (what the OOM killer watches) |
+| `container_memory_working_set_bytes` | Estimated working set: usage minus inactive file cache; not an OOM counter or the exact cgroup OOM decision input |
+| `kube_pod_container_status_last_terminated_reason{reason="OOMKilled"}` | Last observed termination reason from kube-state-metrics; correlate with restarts, events, and cgroup/kernel evidence |
 | `kube_pod_status_phase` | How many pods are in each phase (Running, Pending, Failed) |
 | `kube_deployment_status_replicas_available` | Whether your deployments have the expected replica count |
 | `node_cpu_seconds_total` | Node-level CPU utilization |
@@ -296,7 +299,7 @@ Key concepts:
 
 ### The kube-prometheus-stack
 
-The easiest way to deploy Prometheus and Grafana on Kubernetes is the **kube-prometheus-stack** Helm chart. It installs Prometheus, Grafana, Alertmanager, node-exporter, kube-state-metrics, and a set of pre-built dashboards and alert rules — all in one Helm install.
+The **kube-prometheus-stack** Helm chart installs Prometheus, Grafana, Alertmanager, node-exporter, kube-state-metrics, and pre-built dashboards and alert rules. Installing the chart alone does **not** make monitoring production-ready; the optional lab below is deliberately ephemeral.
 
 ---
 
@@ -305,9 +308,9 @@ The easiest way to deploy Prometheus and Grafana on Kubernetes is the **kube-pro
 | Linux Concept | Kubernetes Equivalent | Notes |
 |---------------|----------------------|-------|
 | cgroups `cpu.max` | `resources.limits.cpu` | Hard CPU ceiling |
-| cgroups `memory.max` | `resources.limits.memory` | OOMKill if exceeded |
-| `nice`/`renice` priority | QoS classes (Guaranteed, Burstable, BestEffort) | Eviction priority under pressure |
-| OOM killer (`oom_score_adj`) | Pod eviction | Lowest QoS evicted first |
+| cgroups `memory.max` | `resources.limits.memory` | Reclaim and possible cgroup OOM |
+| `nice`/`renice` priority | Pod Priority and resource requests (different mechanisms) | Inputs to pressure-eviction ranking, not Linux CPU niceness |
+| OOM killer (`oom_score_adj`) | Container OOM selection influenced by QoS | Distinct from kubelet pod eviction |
 | `top`, `htop` | `kubectl top`, Metrics Server | Real-time resource usage |
 | `sar`, `collectd` | Prometheus | Historical metrics collection and alerting |
 | Grafana/Cacti | Grafana | Visualization and dashboards |
@@ -322,7 +325,7 @@ The easiest way to deploy Prometheus and Grafana on Kubernetes is the **kube-pro
 >
 > - **`kubectl top` shows now, not then.** There's no built-in `sar` or `vmstat` equivalent that tracks resource usage over time. Metrics Server is purely real-time — a snapshot of this moment. If you need "what happened at 3 AM when the alerts fired?" you need Prometheus or a similar time-series database. Kubernetes doesn't ship with historical monitoring.
 >
-> - **Resource limits in Kubernetes are hard — there is no safety net.** On Linux, if a process exceeds available physical memory, the system can swap to disk, giving you time to react. In Kubernetes, there is no swap by default. Exceeding a memory limit triggers an immediate OOMKill — the container is terminated instantly with no graceful shutdown for the limit violation. Set your limits too low, and your pods die. Set them too high, and you waste cluster capacity. Getting resource limits right is one of the hardest operational challenges in Kubernetes.
+> - **Memory limits are enforced by the Linux kernel, not by a metrics dashboard.** The kernel tries reclaim before cgroup OOM; an OOM kill itself provides no graceful shutdown. Do not assume swap is available (the lab does not configure it), or that a working-set sample predicts the exact kill point. Too-low limits can cause OOMs; inflated requests reduce schedulable capacity. Measure both workload and node pressure.
 
 ---
 
@@ -330,10 +333,13 @@ The easiest way to deploy Prometheus and Grafana on Kubernetes is the **kube-pro
 
 ### Prerequisites
 
+Use **Kind v0.31.0**, **kubectl v1.35.0**, and Kubernetes **v1.35.0** with the image digest from the [Kind release](https://github.com/kubernetes-sigs/kind/releases/tag/v0.31.0). The `.0` pin is a teaching baseline; use the latest supported patch of your chosen minor in production. Commands require Bash (WSL2 is suitable on Windows), a running Docker daemon with Linux containers/cgroup v2, internet access, and sufficient host CPU/RAM/disk. Metrics Server and especially the optional monitoring stack need additional capacity beyond the application pods. Confirm an isolated lab context; expected outputs below are not a claim of runtime validation.
+
 Create a Kind cluster:
 
 ```bash
-kind create cluster --name scaling-lab
+kind create cluster --name scaling-lab \
+  --image kindest/node:v1.35.0@sha256:452d707d4862f52530247495d180205e029056831160e22870e37e3f6c1ac31f
 ```
 
 ### Lab 1: Resource Requests, Limits, and QoS Classes
@@ -421,17 +427,17 @@ kubectl delete pod guaranteed-pod burstable-pod besteffort-pod
 
 ### Lab 2: Install Metrics Server on Kind
 
-Kind doesn't ship with Metrics Server. Let's install it.
+Kind doesn't ship with Metrics Server. Pin **v0.8.1**: the official [v0.8.1 compatibility matrix](https://github.com/kubernetes-sigs/metrics-server/blob/v0.8.1/README.md#compatibility-matrix) lists Kubernetes **1.31+**, which includes this 1.35 lab. Aggregation-layer support, kubelet webhook authentication/authorization, and network reachability from the API server to Metrics Server and from Metrics Server to kubelets are prerequisites.
 
 **Step 1 — Apply the Metrics Server manifest:**
 
 ```bash
-kubectl apply -f https://github.com/kubernetes-sigs/metrics-server/releases/latest/download/components.yaml
+kubectl apply -f https://github.com/kubernetes-sigs/metrics-server/releases/download/v0.8.1/components.yaml
 ```
 
 **Step 2 — Patch the deployment to add `--kubelet-insecure-tls`:**
 
-Kind uses self-signed certificates, so Metrics Server needs to skip TLS verification:
+For this disposable Kind lab, bypass verification of kubelet serving certificates that Metrics Server cannot validate. **Testing only:** in production, provide trusted kubelet serving certificates and retain TLS verification; do not copy this workaround into a production install.
 
 ```bash
 kubectl patch deployment metrics-server -n kube-system \
@@ -586,7 +592,9 @@ The events section shows every scaling decision — when it scaled up, why, and 
 
 ### Lab 4: Quick Prometheus and Grafana Setup (Optional)
 
-This lab requires Helm. If you completed Chapter 10, you already have it installed.
+This lab requires Helm and enough spare host capacity for the whole stack. It is an **ephemeral demonstration, not a production-ready monitoring deployment**: no durable Prometheus PVC is configured, and deleting/recreating its pod or cluster can lose history. The small requests below are demo values, not capacity sizing.
+
+Pin chart **92.9.0**. Its official [versioned Chart.yaml](https://github.com/prometheus-community/helm-charts/blob/kube-prometheus-stack-92.9.0/charts/kube-prometheus-stack/Chart.yaml) declares `kubeVersion: ">=1.25.0-0"` (including 1.35) and Prometheus Operator `v0.94.1`. This declared constraint is not evidence that this lab was runtime-tested.
 
 **Step 1 — Add the Prometheus community Helm repository:**
 
@@ -599,13 +607,22 @@ helm repo update
 
 ```bash
 helm install kube-prom prometheus-community/kube-prometheus-stack \
+  --version 92.9.0 \
   --namespace monitoring \
   --create-namespace \
   --set prometheus.prometheusSpec.resources.requests.memory=256Mi \
   --set prometheus.prometheusSpec.resources.requests.cpu=100m
 ```
 
-This installs Prometheus, Grafana, Alertmanager, node-exporter, and kube-state-metrics. It takes a couple of minutes.
+This installs Prometheus, Grafana, Alertmanager, node-exporter, and kube-state-metrics. Startup time depends on downloads and available resources. Some Kind control-plane scrape targets can remain unavailable without extra endpoint/TLS configuration; inspect targets rather than treating every dashboard as complete.
+
+Before adapting this to production:
+
+- Configure `prometheus.prometheusSpec.storageSpec.volumeClaimTemplate` with an appropriate StorageClass, access mode, and PVC size; plan persistence for Alertmanager and Grafana where required. A PVC is not a backup or high availability.
+- Set explicit `retention` and `retentionSize` under `prometheus.prometheusSpec`. Size storage for ingest rate, cardinality, retention, WAL/head data, and compaction headroom; monitor free space. See [Prometheus storage planning](https://prometheus.io/docs/prometheus/latest/storage/).
+- Load-test scrape/query CPU and memory, set measured requests/limits, and plan failure-domain placement, replication or remote storage, and recovery.
+- Configure and test Alertmanager receivers, routing, credentials, and on-call delivery; verify alerts for scrape gaps, resource pressure, and monitoring-stack failure. Default rules without working notifications are not an operational alerting service.
+- Secure UI/API access (authentication, TLS, network restrictions) and test upgrades, backups, and restores.
 
 **Step 3 — Wait for all pods to be ready:**
 
@@ -665,17 +682,17 @@ kind delete cluster --name scaling-lab
 
 ## Key Takeaways
 
-1. **Always set resource requests and limits.** Pods without resource specifications become BestEffort — first to be evicted under pressure and invisible to the scheduler for capacity planning. Requests guarantee minimum resources; limits enforce maximum usage.
+1. **Set realistic requests and suitable limits.** Requests drive scheduling and sharing; missing requests risk overcommit. Choose measured memory limits and deliberate CPU-limit policies rather than assuming every workload needs identical settings.
 
-2. **QoS classes determine eviction order.** Guaranteed pods (requests == limits) are evicted last. BestEffort pods (no resources specified) are evicted first. For critical workloads, use Guaranteed QoS.
+2. **QoS is not an absolute eviction ordering.** Kubelet considers usage versus requests, Pod Priority, and relative usage for the resource under pressure. QoS influences kernel OOM scoring; neither Guaranteed QoS nor a PDB prevents all node-pressure failures.
 
 3. **HPA automates horizontal scaling.** It watches metrics, calculates desired replicas using a simple ratio formula, and adjusts replica count automatically. No manual intervention needed — just define the target utilization and bounds.
 
 4. **HPA requires Metrics Server.** Without Metrics Server, HPA has no data to work with. On Kind, you need to install it separately and add the `--kubelet-insecure-tls` flag.
 
-5. **`kubectl top` is real-time only.** For historical metrics, trending, and alerting, you need Prometheus (or a similar monitoring system). The kube-prometheus-stack Helm chart is the fastest path to production-grade monitoring.
+5. **`kubectl top` is real-time only.** For historical metrics, trending, and alerting, use Prometheus or a similar system. This chart lab is ephemeral; production needs durable storage, retention/capacity planning, and tested alert delivery.
 
-6. **Memory limits are hard limits — OOMKill is immediate.** There's no swap safety net in Kubernetes. If a container exceeds its memory limit, it's terminated instantly. Set memory limits based on actual usage patterns, not guesses.
+6. **Memory reclaim precedes possible cgroup OOM.** Working set is an estimate, not an OOM counter or exact kill threshold. Correlate limits, termination reasons, restarts, cgroup/kernel events, and node pressure when diagnosing memory failures.
 
 7. **LimitRange protects namespaces from resource anarchy.** Set default requests, limits, and maximums per namespace so that even pods deployed without resource specifications get sensible defaults. It's the `ulimit` of Kubernetes.
 
@@ -685,6 +702,7 @@ kind delete cluster --name scaling-lab
 
 - [Resource Management for Pods and Containers](https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/)
 - [Configure Quality of Service for Pods](https://kubernetes.io/docs/tasks/configure-pod-container/quality-service-pod/)
+- [Node-pressure Eviction](https://kubernetes.io/docs/concepts/scheduling-eviction/node-pressure-eviction/)
 - [Horizontal Pod Autoscaling](https://kubernetes.io/docs/tasks/run-application/horizontal-pod-autoscale/)
 - [HorizontalPodAutoscaler Walkthrough](https://kubernetes.io/docs/tasks/run-application/horizontal-pod-autoscale-walkthrough/)
 - [Metrics Server](https://github.com/kubernetes-sigs/metrics-server)

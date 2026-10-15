@@ -4,6 +4,8 @@
 
 ---
 
+The local teaching baseline is **Kubernetes 1.35.0, kind 0.31.0, and kubectl 1.35.x**. For managed clusters, discover a supported regional version first (Appendix C); use a kubectl client within one minor version of the API server rather than assuming the local baseline fits every cloud cluster.
+
 ## Setup and Configuration
 
 ```bash
@@ -17,7 +19,7 @@ kubectl config set-context --current --namespace=dev   # Set default namespace f
 # Get cluster credentials (managed Kubernetes)
 az aks get-credentials --resource-group myRG --name myCluster       # AKS
 aws eks update-kubeconfig --name myCluster --region us-west-2       # EKS
-gcloud container clusters get-credentials myCluster --region us-central1  # GKE
+gcloud container clusters get-credentials my-cluster --region us-central1  # GKE
 
 # Enable shell autocompletion
 source <(kubectl completion bash)                      # Bash (current session)
@@ -63,7 +65,7 @@ kubectl apply -k ./overlays/production/                # Apply Kustomize overlay
 
 # Imperative creation (quick tasks, scripting)
 kubectl create namespace staging                       # Create a namespace
-kubectl create deployment nginx --image=nginx          # Create a deployment
+kubectl create deployment nginx --image=nginx:1.27     # Create a deployment
 kubectl create service clusterip my-svc --tcp=80:8080  # Create a service
 
 # Editing live resources
@@ -118,8 +120,8 @@ kubectl run tmp-curl --rm -it --image=curlimages/curl -- curl http://my-svc  # T
 
 ```bash
 # Run Pods
-kubectl run nginx --image=nginx                        # Run a single Pod
-kubectl run nginx --image=nginx --port=80              # With a declared port
+kubectl run nginx --image=nginx:1.27                   # Run a single Pod
+kubectl run nginx --image=nginx:1.27 --port=80         # With a declared port
 kubectl run busybox --rm -it --image=busybox -- sh     # Interactive one-shot Pod
 
 # Copy files to/from Pods
@@ -222,13 +224,13 @@ alias kl='kubectl logs'
 alias ke='kubectl exec -it'
 
 # Dry-run patterns for generating YAML (never memorize YAML from scratch)
-kubectl create deployment nginx --image=nginx --dry-run=client -o yaml > deploy.yaml
+kubectl create deployment nginx --image=nginx:1.27 --dry-run=client -o yaml > deploy.yaml
 kubectl create service clusterip my-svc --tcp=80:8080 --dry-run=client -o yaml
 kubectl create configmap my-config --from-literal=key=value --dry-run=client -o yaml
 kubectl create secret generic my-secret --from-literal=pass=s3cr3t --dry-run=client -o yaml
 kubectl create job my-job --image=busybox --dry-run=client -o yaml -- echo "hello"
 kubectl create cronjob my-cron --image=busybox --schedule="*/5 * * * *" --dry-run=client -o yaml -- echo "tick"
-kubectl run nginx --image=nginx --dry-run=client -o yaml                    # Pod YAML
+kubectl run nginx --image=nginx:1.27 --dry-run=client -o yaml               # Pod YAML
 
 # Quick resource generation
 kubectl create namespace staging --dry-run=client -o yaml | kubectl apply -f -
@@ -350,6 +352,10 @@ spec:
 
 ### NetworkPolicy
 
+Requires a CNI/network plugin with **NetworkPolicy enforcement enabled**. API acceptance alone proves nothing; a default kind network does not enforce these rules without a suitable network implementation.
+
+Apply this policy in the backend's namespace (`kubectl apply -n <namespace> -f policy.yaml`). It isolates ingress to `app=backend` Pods and allows TCP 8080 from `app=frontend` Pods **in that same namespace**. It does not isolate backend egress. Cross-namespace peers need a `namespaceSelector`; combining it with a `podSelector` in one peer is AND, while separate peers are OR.
+
 ```yaml
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
@@ -371,17 +377,30 @@ spec:
       port: 8080
 ```
 
+Policies are **additive**: another matching policy can allow more traffic. A connection must satisfy destination ingress and source egress policies independently. Test a real backend listening on 8080 from an allowed frontend and an unlabelled/denied client, plus a client in another namespace; expect only the allowed client to connect, absent other allow rules. Use fresh connections after policy propagation and inspect all policies if results differ:
+
+```bash
+kubectl get networkpolicy -n <namespace>
+kubectl describe networkpolicy allow-frontend -n <namespace>
+# Substitute existing test Pod names and the backend Pod IP; avoids DNS ambiguity.
+kubectl exec -n <namespace> <frontend-pod> -- curl --connect-timeout 3 http://<backend-pod-ip>:8080
+kubectl exec -n <namespace> <denied-client-pod> -- curl --connect-timeout 3 http://<backend-pod-ip>:8080
+kubectl exec -n <other-namespace> <client-pod> -- curl --connect-timeout 3 http://<backend-pod-ip>:8080
+```
+
+The clients need curl. No runtime connectivity test is claimed here. See the official [NetworkPolicy semantics and prerequisites](https://kubernetes.io/docs/concepts/services-networking/network-policies/) (checked **2026-10-15**).
+
 ### Ingress
+
+This example requires a maintained **Traefik** controller with its Kubernetes Ingress provider enabled and an `IngressClass` named `traefik` (`spec.controller: traefik.io/ingress-controller`), matching Chapter 7's pinned `traefik:v3.7.15` baseline. Verify `kubectl get ingressclass traefik` and controller readiness first. It preserves the request path; there is no controller-specific rewrite annotation. The `nginx-svc` backend and `app-tls` TLS Secret must exist in the Ingress namespace, with a valid certificate for the host and DNS pointing to the controller. For this TLS variant, also configure and expose a TLS-enabled Traefik entrypoint; Chapter 7's HTTP-only port mapping is not sufficient for HTTPS.
 
 ```yaml
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
   name: app-ingress
-  annotations:
-    nginx.ingress.kubernetes.io/rewrite-target: /
 spec:
-  ingressClassName: nginx
+  ingressClassName: traefik
   rules:
   - host: app.example.com
     http:
@@ -398,6 +417,8 @@ spec:
     - app.example.com
     secretName: app-tls
 ```
+
+References checked **2026-10-15**: [Traefik Kubernetes Ingress](https://doc.traefik.io/traefik/reference/routing-configuration/kubernetes/ingress/) and [community ingress-nginx retirement](https://kubernetes.io/blog/2025/11/11/ingress-nginx-retirement/) (maintenance ended March 2026). The nginx application image used elsewhere in this cheatsheet is not the retired ingress-nginx controller.
 
 ### CronJob
 
