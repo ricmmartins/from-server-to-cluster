@@ -42,10 +42,10 @@ If nginx crashes, systemd notices and restarts it. The "desired state" is "nginx
 
 Kubernetes does this for *everything*, not just process restarts:
 
-- Want 3 replicas? A controller ensures there are always exactly 3.
+- Want 3 replicas? Controllers work toward that count; failures and rollouts can temporarily change the number running.
 - Want a Service routing to healthy pods? A controller updates endpoints when pods come and go.
 - Want a volume mounted? A controller attaches it to the right node.
-- Want a node to be drained? A controller evicts pods and respects disruption budgets.
+- Want a node drained? `kubectl drain` cordons it and requests Pod evictions, respecting disruption budgets for those voluntary disruptions.
 
 ### Declaring Desired State
 
@@ -116,20 +116,24 @@ Let's trace what happens when you `kubectl apply` the deployment above:
 9. The **kubelet** on each selected node notices new Pods assigned to it
 10. Each kubelet pulls the container image and starts the container
 
-That's at least five different controllers, each doing one small job, chained together by the reconciliation pattern. None of them know about the others. They just watch for changes to the objects they care about and react.
+That's several cooperating control loops, each doing one small job, chained together by the reconciliation pattern. They coordinate through API objects rather than calling each other's internal functions.
 
 ### What Happens When a Pod Dies
 
 Now suppose a node crashes and takes one of the three pods with it:
 
-1. The **Node controller** detects the node is unresponsive (via missed heartbeats)
-2. It marks the node as `NotReady`
-3. The **ReplicaSet controller** notices there are now only 2 running pods, but the desired count is 3
-4. It creates a new Pod object
-5. The **Scheduler** places it on a healthy node
-6. The **kubelet** starts it
+1. After missed heartbeats, the **node controller** changes the node's `Ready` condition to `Unknown` (shown as `NotReady` by kubectl) and adds an `unreachable` taint
+2. The affected Pods remain bound during their toleration period. By default, ordinary Pods get **300-second tolerations** for `node.kubernetes.io/not-ready` and `node.kubernetes.io/unreachable`
+3. Once the relevant `NoExecute` toleration expires, the **taint-eviction controller** requests deletion of the affected Pods
+4. The **ReplicaSet controller** creates replacement Pod objects to restore the desired count
+5. The **scheduler** tries to place the replacements on eligible healthy nodes with sufficient unrequested capacity
+6. The **kubelet** starts the new containers once images, networking, and any required storage are ready
 
-You didn't do anything. You didn't get paged. The system healed itself because every controller kept checking: "Does reality match the spec?"
+This is automatic recovery, **not immediate failover**. Allow for failure detection, toleration time, eviction rate limits, scheduling, and startup. Without spare capacity or compatible storage, replacements can stay Pending. A network-partitioned node may even keep running its old containers until it reconnects, so stateful workloads need safeguards against concurrent writers. You still need alerts and availability planning.
+
+If only a container crashes on a healthy node, its kubelet normally restarts it in the same Pod according to `restartPolicy`; that is different from replacing a lost Pod.
+
+> **Source:** [Taints and Tolerations — Taint-based Evictions](https://kubernetes.io/docs/concepts/scheduling-eviction/taint-and-toleration/#taint-based-evictions)
 
 ---
 
@@ -192,7 +196,7 @@ Selectors are queries against labels. They're how controllers, Services, and you
 kubectl get pods -l env=production
 
 # Find all pods NOT in production
-kubectl get pods -l env!=production
+kubectl get pods -l 'env!=production'
 ```
 
 **Set-based selectors:**
@@ -327,7 +331,7 @@ You do *not* need namespaces for every small difference. Different versions of t
 
 The **kube-scheduler** is the component that decides which node a Pod runs on. Every time a new Pod is created without a node assignment, the scheduler picks one.
 
-On Linux, you might use `taskset` to pin a process to specific CPUs, or `nice` to adjust priority. Kubernetes scheduling is the cluster-level equivalent — but instead of CPUs on one machine, you're choosing among nodes in a cluster.
+On Linux, you might use `taskset` to pin a process to specific CPUs, or `nice` to adjust CPU scheduling priority. Kubernetes scheduling chooses **nodes**, not CPU time slices. Resource requests and limits are not a replacement for `nice`, and do not set a Pod's scheduling priority.
 
 ### How the Scheduler Decides
 
@@ -350,10 +354,12 @@ resources:
     cpu: "500m"
 ```
 
-- **Requests** are what the scheduler uses for placement. "This Pod needs at least 128Mi of memory and 250m of CPU." The scheduler only places the Pod on a node that has enough *unrequested* resources.
-- **Limits** are the maximum the Pod is allowed to consume. If a container exceeds its memory limit, it gets OOM-killed. If it exceeds its CPU limit, it gets throttled.
+- **Requests** are what the scheduler accounts for during placement. Here it budgets 128Mi of memory and 250m of CPU for the container. Requests must fit within a node's *allocatable* resources after existing requests are subtracted; this is not a check of current idle CPU or free RAM.
+- **Limits** constrain runtime consumption. CPU quotas throttle a container that exhausts its CPU budget; memory limits are enforced reactively and can cause an OOM kill when allocations cannot be satisfied within the limit.
 
-This maps directly to Linux cgroups. Under the hood, the kubelet translates requests and limits into cgroup settings on the node. Requests become cgroup reservations; limits become cgroup hard caps.
+On Linux, the kubelet and runtime enforce limits through cgroups. A CPU request also influences proportional CPU shares (`cpu.weight` on cgroups v2) **under contention**. It does not physically reserve or pin a CPU, and a container can use more than its request when capacity and limits allow. A memory request is scheduling and eviction accounting, not preallocated physical RAM. Don't assume it enables `memory.low` protection by default. Pod priority is a separate mechanism (`PriorityClass`).
+
+> **Source:** [Resource Management for Pods and Containers](https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/)
 
 ### Node Affinity
 
@@ -385,7 +391,7 @@ Taints are the *opposite* of affinity — they let a node *repel* Pods.
 kubectl taint nodes gpu-node-1 workload=gpu:NoSchedule
 ```
 
-Now, only Pods with a matching toleration can be scheduled there:
+Now, only Pods with a matching toleration can pass this taint check (they must still satisfy the scheduler's other checks):
 
 ```yaml
 spec:
@@ -443,7 +449,7 @@ There's no direct Linux equivalent for this — it's a cluster-wide concern that
 
 > **Where the Linux Analogy Breaks**
 >
-> **Eventual consistency, not immediate execution.** Linux is immediate: you run a command, it happens now. Kubernetes is eventually consistent — you submit a desired state, and controllers work toward it asynchronously. You might wait seconds or minutes for the system to converge. This isn't a bug; it's the design. Distributed systems *must* be eventually consistent.
+> **Asynchronous reconciliation, not immediate execution.** Even local Linux services take time to start. Kubernetes adds independent control loops: you submit desired state, and controllers work toward it asynchronously. You might wait seconds or minutes for workloads to converge. This does not mean all distributed storage is eventually consistent — etcd uses strongly consistent consensus.
 >
 > **The manifest is the source of truth, not the running state.** There's no "SSH in and fix it" escape hatch for normal operations. If you manually modify a running Pod (say, installing a package via `kubectl exec`), the controller will overwrite your changes the next time it recreates the Pod. The YAML manifest in version control is the only source of truth. If it's not in the manifest, it doesn't exist.
 >
@@ -460,13 +466,15 @@ This lab demonstrates the core concepts from this chapter using a Kind cluster.
 Make sure you have a Kind cluster running:
 
 ```bash
-kind create cluster --name chapter04
+kind create cluster --name chapter04 \
+  --image kindest/node:v1.35.0@sha256:452d707d4862f52530247495d180205e029056831160e22870e37e3f6c1ac31f
 ```
 
 Verify it's ready:
 
 ```bash
 kubectl cluster-info --context kind-chapter04
+kubectl config set-context --current --namespace=default
 ```
 
 ---
@@ -477,6 +485,7 @@ kubectl cluster-info --context kind-chapter04
 
 ```bash
 kubectl create deployment nginx --image=nginx:1.27 --replicas=3
+kubectl rollout status deployment/nginx --timeout=120s
 ```
 
 **Step 2 — Verify the Pods are running:**
@@ -506,6 +515,7 @@ You'll see a new Pod with a different name being created (or already running). T
 
 ```bash
 kubectl scale deployment nginx --replicas=5
+kubectl rollout status deployment/nginx --timeout=120s
 ```
 
 Watch the new Pods appear:
@@ -578,10 +588,12 @@ kubectl expose deployment nginx --port=80 --name=nginx-prod --type=ClusterIP --o
 Check which Pods the Service selected:
 
 ```bash
-kubectl describe svc nginx-prod | grep Endpoints
+kubectl get pods -l app=nginx,env=production -o wide
+kubectl get endpointslices -l kubernetes.io/service-name=nginx-prod \
+  -o jsonpath='{range .items[*].endpoints[*]}{.addresses[0]}{" ready="}{.conditions.ready}{"\n"}{end}'
 ```
 
-You should see only the IPs of the 3 production-labeled Pods.
+Once the EndpointSlice controller has reconciled, you should see only the IPs of the 3 production-labeled Pods. Only ready endpoints receive normal Service traffic.
 
 Clean up the Service:
 

@@ -73,7 +73,7 @@ The hardest part of learning Kubernetes isn't the technology — it's the mindse
 - "I need **3 copies** of nginx running **somewhere** in the cluster"
 - "I need a **Service** that routes traffic to any healthy nginx Pod"
 - "I need **persistent storage** that survives Pod restarts, regardless of which node it runs on"
-- "If a Pod crashes, the **Deployment controller** will replace it automatically"
+- "If a container crashes, the **kubelet** restarts it according to its restart policy; if a Deployment's Pod is lost, its **ReplicaSet controller** creates a replacement"
 
 Notice the shift: you stop caring about *which specific machine* runs your workload. You declare *what you want* (3 nginx replicas, persistent storage, a network endpoint), and Kubernetes figures out the *where* and *how*.
 
@@ -113,6 +113,10 @@ Every chapter includes:
 
 Before we dive in, let's make sure your environment is ready. You'll need Docker and Kind installed — both run on Linux (or WSL2 on Windows).
 
+**Lab baseline:** Kind **v0.31.0**, Kubernetes **v1.35.0**, and kubectl **v1.35.0**. Every cluster creation command pins the official node image by digest so the labs use the same snapshot. These `.0` versions are a teaching snapshot, **not a recommendation to run an initial patch release in production**; production clusters need supported, current security patches.
+
+The commands in this book use a Linux Bash shell (including WSL2), Linux containers, and cgroups v2. With Docker Desktop, make sure its Linux engine is running and WSL integration is enabled for your distribution. The Docker CLI may run in WSL while the daemon and container processes run in Docker Desktop's separate Linux environment.
+
 ### Step 1: Verify Docker
 
 ```bash
@@ -145,7 +149,7 @@ kind version
 kubectl is the command-line tool for interacting with Kubernetes clusters — think of it as your `systemctl` for the cluster:
 
 ```bash
-curl -LO "https://dl.k8s.io/release/$(curl -Ls https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
+curl -LO "https://dl.k8s.io/release/v1.35.0/bin/linux/amd64/kubectl"
 chmod +x kubectl
 sudo mv kubectl /usr/local/bin/kubectl
 ```
@@ -161,14 +165,17 @@ kubectl version --client
 ### Step 4: Create Your First Cluster
 
 ```bash
-kind create cluster --name from-server-to-cluster
+kind create cluster --name from-server-to-cluster \
+  --image kindest/node:v1.35.0@sha256:452d707d4862f52530247495d180205e029056831160e22870e37e3f6c1ac31f
 ```
 
-This creates a single-node Kubernetes cluster running inside a Docker container. You should see output ending with:
+This creates a single-node Kubernetes cluster running inside a Docker container. Its output includes:
 
 ```
 Set kubectl context to "kind-from-server-to-cluster"
 ```
+
+> **Source:** [Kind v0.31.0 default node image](https://raw.githubusercontent.com/kubernetes-sigs/kind/v0.31.0/pkg/apis/config/defaults/image.go)
 
 ### Step 5: Verify the Cluster
 

@@ -31,20 +31,24 @@ Linux provides several namespace types, each isolating a different system resour
 | **MNT** | `CLONE_NEWNS` | Mount points — the container has its own filesystem tree | Like `chroot` on steroids |
 | **UTS** | `CLONE_NEWUTS` | Hostname and domain name | Like setting a different hostname per service |
 | **IPC** | `CLONE_NEWIPC` | Inter-process communication (shared memory, semaphores) | Like separate System V IPC domains |
-| **USER** | `CLONE_NEWUSER` | User and group IDs — root inside may not be root outside | Like having a separate `/etc/passwd` per process |
+| **USER** | `CLONE_NEWUSER` | User and group ID mappings — root inside may map to an unprivileged UID outside | A separate UID/GID mapping, not a separate `/etc/passwd` |
 | **cgroup** | `CLONE_NEWCGROUP` | cgroup root directory — the container sees its own cgroup hierarchy as root | Like a private view of `/sys/fs/cgroup/` |
 
 When Docker starts a container, it's calling the same kernel APIs that `unshare` and `clone()` use. The "magic" of containers is just namespace creation — something Linux has supported since kernel 2.6.24 (2008) and that matured with user namespaces in kernel 3.8 (2013).
 
 ### How Namespaces Work Together
 
-A typical container combines all seven namespace types. The process inside:
+A typical rootful Docker container uses separate PID, NET, MNT, UTS, IPC, and cgroup namespaces, but **does not get a separate user namespace by default**. The process inside:
 - Sees itself as PID 1 (PID namespace)
 - Has its own `lo` and `eth0` interfaces (NET namespace)
 - Sees a completely different root filesystem (MNT namespace)
 - Has its own hostname (UTS namespace)
 - Can't access the host's shared memory (IPC namespace)
-- May even think it's running as root, but actually has limited privileges on the host (USER namespace)
+- Can map root to an unprivileged host UID when user namespace remapping or rootless mode is enabled (USER namespace)
+
+Without user namespace remapping, UID 0 inside is still UID 0 on the daemon's Linux host. Capabilities, seccomp, and other controls restrict what it can do, but don't confuse those restrictions with a different UID. A user namespace changes identity mappings, not just the user database.
+
+> **Source:** [Docker — Isolate containers with a user namespace](https://docs.docker.com/engine/security/userns-remap/)
 
 From the **host's perspective**, that same process is just another entry in `ps aux` with a regular PID. There's nothing special about it — it's a normal Linux process with some extra kernel metadata restricting what it can see.
 
@@ -127,9 +131,9 @@ graph TD
     style E fill:#581c87,stroke:#a855f7,color:#fff
 ```
 
-Here's the key insight: **Kubernetes doesn't use Docker.** Since Kubernetes v1.24, Docker support (dockershim) was removed. Kubernetes talks directly to **containerd** via the Container Runtime Interface (CRI). containerd then uses **runc** to create the actual container process.
+Here's the key insight: **Kubernetes doesn't need Docker Engine.** Kubernetes v1.24 removed its built-in Docker integration, dockershim. Our Kind nodes use **containerd** through the Container Runtime Interface (CRI), then **runc** to create container processes. Other CRI runtimes, such as CRI-O, are also supported; using Docker Engine as a Kubernetes runtime requires an external CRI adapter.
 
-Docker is a development tool. containerd is the production runtime. runc is the engine that talks to the kernel. Understanding this stack matters because when you troubleshoot container issues in Kubernetes, you're debugging containerd and runc — not Docker.
+Docker Engine is useful for development and runs our Kind node containers. Inside those nodes, containerd and runc run the Kubernetes workloads. Understanding these two layers matters: workload runtime issues involve the node's containerd, while Kind node-container issues may involve the outer Docker Engine.
 
 ## Linux ↔ Container Comparison Table
 
@@ -145,7 +149,7 @@ Docker is a development tool. containerd is the production runtime. runc is the 
 
 > **Where the Linux Analogy Breaks**
 >
-> - **Images are immutable and layered.** On a Linux server, you can modify any file in-place. Container images are built from read-only layers — runtime writes go to a separate writable layer that's discarded when the container stops. This immutability is a feature, not a limitation: it guarantees that every container from the same image starts identically.
+> - **Images are immutable and layered.** On a Linux server, you can modify any file in-place. Container images are built from read-only layers — runtime writes go to a separate writable layer. In Docker, that layer survives `docker stop` and `docker start` of the same container; it is discarded when the container is **removed** (`docker rm`, or automatic removal with `--rm`). A newly created container starts from the image again. Use volumes or bind mounts for data that must outlive a container. Kubernetes container restarts create a new container with a fresh writable layer.
 >
 > - **The entrypoint must stay running.** On a Linux server, if a service crashes, systemd restarts it. In a container, if PID 1 exits, the container dies immediately. There's no init system inside to restart it. (That's Kubernetes' job — it restarts the *container*, not the process inside it.)
 >
@@ -168,15 +172,12 @@ This exercise proves that "containers" are just Linux kernel features. We'll use
 **Create a new PID and mount namespace:**
 
 ```bash
-sudo unshare --pid --mount --fork bash
+sudo unshare --pid --mount --fork --mount-proc bash
 ```
 
 Inside this new namespace, you're in an isolated PID space. Let's prove it:
 
 ```bash
-# Mount a fresh /proc for this PID namespace
-mount -t proc proc /proc
-
 # Check — your shell is PID 1 in this namespace!
 echo $$
 
@@ -185,6 +186,8 @@ ps aux
 ```
 
 You should see very few processes — just your shell and `ps` itself. Meanwhile, on the host (in another terminal), the full process list is visible. This is exactly what a container sees.
+
+`--mount-proc` mounts a fresh `/proc` for the new PID namespace and keeps that mount private to the exercise.
 
 **Exit the namespace:**
 
@@ -209,7 +212,7 @@ Create a Dockerfile:
 ```dockerfile
 FROM ubuntu:24.04
 RUN apt-get update && apt-get install -y curl && rm -rf /var/lib/apt/lists/*
-COPY <<EOF /app/hello.sh
+COPY <<'EOF' /app/hello.sh
 #!/bin/bash
 echo "Hello from container! Hostname: $(hostname), PID: $$"
 sleep infinity
@@ -228,14 +231,14 @@ docker build -t my-container-lab:v1 .
 
 ### Exercise 3: Inspect Image Layers
 
-Every Dockerfile instruction that modifies the filesystem creates a new layer. Let's see them:
+Dockerfile instructions such as `RUN` and `COPY` create filesystem layers; metadata-only instructions such as `CMD` do not. Let's inspect the build history:
 
 ```bash
-# Show the layer history — each line is a layer
+# Show build history — metadata-only entries can have zero size
 docker history my-container-lab:v1
 ```
 
-You'll see each layer with its size and the command that created it. Notice how `FROM ubuntu:24.04` is the largest layer and your `COPY` command is tiny.
+You'll see filesystem changes and metadata entries with their sizes and build commands. The base-image history may span several entries; compare those with your small `COPY` layer.
 
 Now inspect the full image metadata:
 
@@ -287,8 +290,9 @@ This is the "aha moment." Run a container and prove it's just a process on the h
 # Run a container
 docker run -d --name process-proof my-container-lab:v1
 
-# Inside the container, the entrypoint is PID 1
-docker exec process-proof ps aux
+# Inspect PID 1 without requiring ps in the minimal Ubuntu image
+docker exec process-proof cat /proc/1/status
+docker exec process-proof cat /proc/1/comm
 ```
 
 Now look at the **host's** process list:
@@ -298,17 +302,19 @@ Now look at the **host's** process list:
 docker top process-proof
 ```
 
-The `docker top` output shows the container's processes as the **host sees them** — with real host PIDs. The container process thinks it's PID 1, but the host knows its actual PID.
+The `docker top` output shows the container's processes as the **daemon's Linux host sees them** — with host PIDs. The entrypoint is PID 1 inside, but has a different PID outside. With Docker Desktop or a remote daemon, these are not PIDs in your client shell's process namespace.
 
-You can even find it with plain `ps`:
+**Only with a local Docker Engine on Linux**, where your shell shares the daemon host's PID namespace, can you find it with plain `ps`:
 
 ```bash
-# Get the container's PID on the host
+# Get the container's PID on the DAEMON host, not the CLI client
 docker inspect process-proof --format '{{.State.Pid}}'
 
 # Verify — this is a regular process visible on the host
 ps -p $(docker inspect process-proof --format '{{.State.Pid}}') -o pid,ppid,cmd
 ```
+
+With Docker Desktop (including a WSL-integrated client), or any remote Docker context, use `docker top process-proof` instead. A client-side `ps` could show nothing or an unrelated process with the same numeric PID.
 
 **This is the fundamental revelation:** A container is not a VM. It's not a separate kernel. It's a Linux process with namespaces and cgroups applied. The host kernel runs everything.
 
@@ -324,10 +330,10 @@ rm -rf ~/container-lab
 ## Key Takeaways
 
 1. **A container is a Linux process** with namespaces (isolation), cgroups (resource limits), and an image-based root filesystem. There's no kernel-level "container" primitive.
-2. **Linux namespaces** provide six types of isolation: PID, NET, MNT, UTS, IPC, and USER. Each hides a different aspect of the host system from the containerized process.
+2. **Linux namespaces** isolate resources such as PIDs, networking, mounts, hostnames, IPC, user IDs, and cgroup views. Rootful Docker does not create a separate USER namespace by default; enable remapping or rootless mode for that identity boundary.
 3. **cgroups v2** enforce resource boundaries. When you set `--memory=128m`, Docker writes to the same `/sys/fs/cgroup/memory.max` file you could write to manually.
-4. **OCI images are layered and immutable.** Each Dockerfile instruction creates a read-only layer. Shared base layers save disk space, and immutability guarantees consistent deployments.
-5. **The container runtime stack is Docker CLI → dockerd → containerd → runc → Linux kernel.** Kubernetes skips Docker entirely and talks to containerd via CRI.
+4. **OCI images are layered and immutable.** Filesystem-changing Dockerfile instructions create layers; metadata-only instructions do not. A Docker container's writable layer survives stop/start, but not removal. Shared base layers save disk space.
+5. **A typical Docker runtime stack is Docker CLI → dockerd → containerd → runc → Linux kernel.** Kubernetes uses a CRI-compatible runtime directly; our Kind nodes use containerd.
 6. **Container entrypoints are PID 1.** If the entrypoint process exits, the container stops. There's no init system inside to restart services — that responsibility shifts to the orchestrator (Kubernetes).
 7. **Understanding these Linux foundations gives you a debugging superpower.** When a container misbehaves, you're not fighting magic — you're debugging namespaces, cgroups, and process behavior, which you already understand.
 
@@ -341,6 +347,7 @@ rm -rf ~/container-lab
 - [Dockerfile Reference](https://docs.docker.com/reference/dockerfile/)
 - [containerd — CNCF Project](https://containerd.io/)
 - [Docker CLI Reference](https://docs.docker.com/reference/cli/docker/)
+- [Docker Storage — Container Layer Basics](https://docs.docker.com/engine/storage/)
 
 ---
 

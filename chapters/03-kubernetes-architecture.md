@@ -22,21 +22,25 @@ Kubernetes has an equivalent for every one of these — but instead of managing 
 
 ## Control Plane Components
 
-The control plane runs the decision-making and state-management components. In a production cluster, it typically runs on dedicated machines (or multiple machines for high availability). In Kind, everything runs on a single Docker container.
+The control plane runs the decision-making and state-management components. In a production cluster, it typically runs on dedicated machines (or multiple machines for high availability). In a single-node Kind cluster, the control plane and workloads share one Docker container; multi-node Kind clusters use a container per node.
 
 ### kube-apiserver — The Central Command Interface
 
 **Linux analogy: systemctl / D-Bus**
 
-Every interaction with a Kubernetes cluster goes through the API server. When you run `kubectl get pods`, you're making an HTTPS REST call to the API server. When the scheduler needs to assign a Pod to a node, it talks to the API server. When the kubelet reports a node's status, it talks to the API server.
+The API server is the hub for Kubernetes API objects and desired state. When you run `kubectl get pods`, you're making an HTTPS REST call to the API server. When the scheduler needs to assign a Pod to a node, it talks to the API server. When the kubelet reports a node's status, it talks to the API server.
 
 The API server is:
-- **The single point of entry** — no component talks directly to another; everything goes through the API
+- **The entry point for Kubernetes API operations** — clients and controllers read and update cluster objects here, rather than editing etcd directly
 - **An authentication and authorization gateway** — every request is authenticated (certificates, tokens) and authorized (RBAC)
 - **An admission controller** — requests can be validated, mutated, or rejected by admission webhooks before being persisted
 - **A REST API** — every Kubernetes resource (Pods, Services, Deployments) is a REST endpoint you can query with `curl`
 
 On a Linux server, `systemctl` is your interface to manage services, and D-Bus is the communication backbone between system components. The API server serves both roles for the entire cluster.
+
+That doesn't make it a universal communication channel. The kubelet talks **directly to its local runtime over CRI**, and application traffic flows between Pods and Services without passing through the API server. In the other direction, the API server connects to the **kubelet's HTTPS endpoint** for operations such as logs, exec/attach, and port-forwarding.
+
+> **Source:** [Communication between Nodes and the Control Plane](https://kubernetes.io/docs/concepts/architecture/control-plane-node-communication/)
 
 ### etcd — The Distributed Configuration Store
 
@@ -59,7 +63,7 @@ If `/etc/` on a Linux server is the source of truth for that machine's configura
 When you create a Pod, it initially has no node assigned. The scheduler watches for unscheduled Pods, evaluates which nodes can run them (filtering), scores the remaining candidates (ranking), and assigns the Pod to the best node.
 
 The scheduler considers:
-- **Resource availability** — does the node have enough CPU and memory?
+- **Resource availability** — do the Pod's requests fit within the node's allocatable CPU and memory after existing requests are accounted for?
 - **Affinity and anti-affinity rules** — does the Pod need to be near (or far from) other Pods?
 - **Taints and tolerations** — is the node marked as unsuitable for general workloads?
 - **Topology constraints** — should Pods be spread across availability zones?
@@ -77,9 +81,9 @@ Key controllers include:
 - **Replication controller** — ensures the correct number of Pod replicas are running
 - **Job controller** — manages batch workloads (run-to-completion)
 - **ServiceAccount controller** — creates default ServiceAccounts for new namespaces
-- **Endpoint controller** — populates the Endpoints object (which Pods back a Service)
+- **EndpointSlice controller** — maintains EndpointSlices describing which Pods back a Service (the older Endpoints API is deprecated in Kubernetes v1.33 and later)
 
-Think of systemd on Linux: it reads unit files (desired state) and ensures the corresponding services are running (actual state). If a service crashes, systemd restarts it. Kubernetes controllers do the same, but at scale — if a Pod dies, the ReplicaSet controller creates a replacement. If a node goes down, the node controller marks it as unhealthy and controllers reschedule the affected Pods elsewhere.
+Think of systemd on Linux: it reads unit files (desired state) and ensures the corresponding services are running (actual state). If a service crashes, systemd restarts it. Kubernetes controllers do the same, but at scale — if a managed Pod is lost, the ReplicaSet controller creates a replacement. If a node goes down, the node controller marks it unhealthy; after eviction and toleration handling, workload controllers create replacement Pods and the scheduler tries to place them elsewhere. Existing Pods do not move between nodes. Recovery takes time and requires suitable capacity (see Chapter 4).
 
 ### cloud-controller-manager — The Cloud Integration Layer
 
@@ -88,11 +92,15 @@ Think of systemd on Linux: it reads unit files (desired state) and ensures the c
 This optional component integrates Kubernetes with cloud provider APIs. It handles:
 - **Node management** — detecting when a cloud VM is deleted and removing the corresponding Node object
 - **Load balancers** — provisioning cloud load balancers when you create a Service of type `LoadBalancer`
-- **Storage** — interacting with cloud storage APIs for volume provisioning
+- **Routes** — configuring cloud network routes between nodes, where the provider's networking requires them
+
+Modern cloud volume provisioning is handled by **CSI (Container Storage Interface) drivers and their controller sidecars**, including the external provisioner — not by the cloud-controller-manager.
 
 Just as Linux has kernel drivers that abstract hardware differences (you use the same `mount` command regardless of the disk type), the cloud controller manager abstracts cloud differences so Kubernetes works the same everywhere.
 
-In Kind (and on bare-metal clusters), this component doesn't exist — there's no cloud to integrate with.
+The default Kind cluster in these labs has no cloud-controller-manager. Bare-metal clusters usually omit it too, unless an infrastructure integration provides one.
+
+> **Sources:** [Cloud Controller Manager](https://kubernetes.io/docs/concepts/architecture/cloud-controller/) | [CSI Volumes](https://kubernetes.io/docs/concepts/storage/volumes/#csi)
 
 ## Worker Node Components
 
@@ -121,16 +129,18 @@ kube-proxy runs on every node and maintains network rules that enable the Kubern
 
 kube-proxy can operate in different modes:
 - **iptables mode** (common) — programs iptables rules for each Service; kernel-space packet forwarding
-- **IPVS mode** — uses the kernel's IP Virtual Server for better performance at scale
-- **nftables mode** (newer, alpha from Kubernetes v1.29) — uses nftables as the backend, replacing iptables rules
+- **IPVS mode** — uses the kernel's IP Virtual Server; deprecated in the Kubernetes v1.35 lab baseline
+- **nftables mode** — uses nftables as the backend; stable since Kubernetes v1.33 (initially alpha in v1.29)
 
 On a Linux server, you write iptables rules to route traffic. In Kubernetes, kube-proxy writes those rules for you based on the Services you define. The mechanism is identical — the automation layer is what's new.
+
+> **Source:** [Kubernetes v1.35 — Virtual IPs and Service Proxies](https://v1-35.docs.kubernetes.io/docs/reference/networking/virtual-ips/)
 
 ### Container Runtime — The Container Engine
 
 **Linux analogy: package manager + process launcher**
 
-The container runtime pulls images and starts containers. In modern Kubernetes (v1.24+), the standard runtime is **containerd**, which communicates with the kubelet through the Container Runtime Interface (CRI).
+The container runtime pulls images and starts containers. Kubernetes requires a CRI-compatible runtime, such as **containerd** (used in these labs) or CRI-O. The kubelet communicates with it through the Container Runtime Interface (CRI).
 
 The stack on each node is:
 
@@ -149,9 +159,9 @@ Here's the flow when you run `kubectl run nginx --image=nginx`:
 3. **Scheduler** notices the new unassigned Pod (via a watch on the API server), evaluates nodes, and updates the Pod with the selected node name
 4. **kubelet** on the chosen node notices it has a new Pod assigned (via its watch), tells **containerd** to pull the nginx image and start the container
 5. **kubelet** reports the Pod status as "Running" to the API server, which persists it to etcd
-6. **kube-proxy** on each node updates network rules so the Pod is reachable via Services
+6. **If a Service selects this Pod**, the **EndpointSlice controller** updates its endpoints as readiness changes; **kube-proxy** watches Services and EndpointSlices and updates forwarding rules. `kubectl run` alone does not create a Service.
 
-Every step goes through the API server. The API server is the hub; everything else is a spoke. This is by design — it means there's a single, auditable, authenticated chokepoint for all cluster operations.
+Object reads and writes go through the API server, making it the hub for desired state. The actual image pulls and container lifecycle calls happen between the kubelet and runtime over CRI, while Service traffic uses the node's data plane. Keep those paths separate when troubleshooting.
 
 ## Linux ↔ Kubernetes Architecture Comparison Table
 
@@ -171,7 +181,7 @@ Every step goes through the API server. The API server is the hub; everything el
 >
 > - **etcd is not just `/etc/`.** It's a distributed consensus system using the Raft protocol. Losing a majority of etcd nodes means losing the ability to write cluster state. Losing all etcd data without a backup means losing the cluster entirely. On a Linux server, corrupting `/etc/` is bad but recoverable — you can boot from a rescue disk. etcd failure at scale is a much bigger disaster because it affects every node and workload in the cluster.
 >
-> - **The API server isn't just `systemctl`.** It's simultaneously an authentication gateway, an authorization engine (RBAC), an admission controller pipeline, a REST API, and the only component that talks to etcd. Nothing happens in the cluster without going through it. On Linux, you can bypass systemd and run processes manually. In Kubernetes, bypassing the API server means the cluster doesn't know the workload exists.
+> - **The API server isn't just `systemctl`.** It's simultaneously an authentication gateway, an authorization engine (RBAC), an admission controller pipeline, and a REST API backed by etcd. Normal Kubernetes object management goes through it, but local container restarts and data-plane traffic do not. Static Pods are another exception: the kubelet reads their local manifests and reports mirror Pods through the API when available.
 >
 > - **The flow of control is reversed.** On a Linux server, you SSH in and run commands — you push instructions to the machine. In Kubernetes, the kubelet **pulls** instructions from the API server. You never SSH into a node to start a container. You submit a manifest to the API server, and the kubelet on the appropriate node picks it up. This pull-based model is what enables Kubernetes to manage thousands of nodes without needing SSH access to any of them.
 
@@ -187,7 +197,8 @@ This lab uses a Kind cluster to explore the actual components that make up a Kub
 ### Exercise 1: Create a Kind Cluster
 
 ```bash
-kind create cluster --name arch-lab
+kind create cluster --name arch-lab \
+  --image kindest/node:v1.35.0@sha256:452d707d4862f52530247495d180205e029056831160e22870e37e3f6c1ac31f
 ```
 
 Wait for the cluster to be ready:
@@ -200,7 +211,7 @@ kubectl cluster-info --context kind-arch-lab
 
 ### Exercise 2: Explore Control Plane Components
 
-In Kind, all control plane components run as static Pods in the `kube-system` namespace:
+In Kind, the API server, etcd, scheduler, and controller manager run as static Pods in `kube-system`. The same namespace also contains add-on Pods managed by Deployments or DaemonSets:
 
 ```bash
 kubectl get pods -n kube-system
@@ -220,7 +231,7 @@ kube-proxy-...                               1/1     Running   0          2m
 kube-scheduler-arch-lab-control-plane        1/1     Running   0          2m
 ```
 
-Every component we discussed is right there — running as a container (which is just a Linux process, as you learned in Chapter 2).
+The control plane and networking components are right there as containers. The kubelet runs separately as a systemd service, and the default Kind cluster has no cloud-controller-manager.
 
 ### Exercise 3: Check Cluster Health
 
@@ -272,7 +283,7 @@ kubectl exec -n kube-system etcd-arch-lab-control-plane -- etcdctl \
   get / --prefix --keys-only --limit=20
 ```
 
-You'll see keys like:
+The first 20 keys depend on the cluster's objects. Across the registry, keys use paths like these (not necessarily all in this limited result):
 ```
 /registry/configmaps/kube-system/coredns
 /registry/namespaces/default
@@ -302,7 +313,7 @@ I0101 12:00:00.100000  round_trippers.go:553] GET https://127.0.0.1:PORT/api/v1/
 This reveals the actual HTTP request: `GET /api/v1/namespaces/kube-system/pods`. Kubernetes is just a REST API — `kubectl` is a fancy HTTP client. You could make the same request with `curl`:
 
 ```bash
-# Get the API server URL and use kubectl's credentials to make a raw request
+# Use the current kubeconfig credentials to make a raw API request
 kubectl get --raw /api/v1/namespaces/kube-system/pods | python3 -m json.tool | head -20
 ```
 
@@ -319,12 +330,12 @@ kind delete cluster --name arch-lab
 ## Key Takeaways
 
 1. **Kubernetes architecture splits into control plane (brain) and worker nodes (muscle).** The control plane makes decisions; worker nodes execute them.
-2. **The API server is the hub of everything.** All communication between components goes through it — there's no direct component-to-component chatter. This makes the system auditable and secure.
+2. **The API server is the hub for cluster objects, not all traffic.** Kubelets call runtimes directly over CRI; the API server contacts kubelets for logs, exec, and port-forwarding; application traffic follows the data plane.
 3. **etcd stores all cluster state** as a distributed, strongly consistent key-value store. Losing etcd data means losing the cluster. Back it up.
 4. **The scheduler assigns Pods to nodes** based on resource availability, constraints, and policies — just like the Linux CPU scheduler assigns processes to cores.
 5. **The kubelet is systemd for containers.** It runs on every node, receives PodSpecs from the API server, and ensures the right containers are running and healthy.
 6. **kube-proxy manages network rules** (iptables, IPVS, or nftables) to implement the Service abstraction — same kernel features you already know, automated at cluster scale.
-7. **Everything is a REST API call.** When you run `kubectl get pods`, you're making an HTTP GET request. Understanding this makes debugging transparent — add `-v=6` to any kubectl command to see the actual API calls.
+7. **kubectl manages objects through the Kubernetes API.** When you run `kubectl get pods`, you're making an HTTP GET request. Add `-v=6` to see API request details; this does not trace CRI calls or application packets.
 
 ## Further Reading
 

@@ -36,7 +36,8 @@ This gives you a 3-node cluster: one control plane and two workers. Each "node" 
 Save this as `kind-config.yaml` and create the cluster:
 
 ```bash
-kind create cluster --name first-cluster --config kind-config.yaml
+kind create cluster --name first-cluster --config kind-config.yaml \
+  --image kindest/node:v1.35.0@sha256:452d707d4862f52530247495d180205e029056831160e22870e37e3f6c1ac31f
 ```
 
 ### Port Mappings
@@ -56,7 +57,7 @@ nodes:
 - role: worker
 ```
 
-This maps port 30080 inside the cluster (commonly used with NodePort Services) to port 8080 on your local machine. We'll use this in later chapters.
+This maps port 30080 on the control-plane node container to port 8080 on your local machine. A NodePort Service must explicitly use `nodePort: 30080` for this mapping; an automatically allocated NodePort may differ. We'll use this in later chapters. Port mappings must be configured when creating the cluster, not added to an existing one.
 
 ### What Kind Creates Under the Hood
 
@@ -296,7 +297,7 @@ This is a common workflow: create imperatively with dry-run to get the YAML temp
 | `scp file server:/path` | `kubectl cp file <pod>:/path` | Copies between local filesystem and container |
 | `ss -tlnp` | `kubectl get svc` | Lists Services and their port mappings |
 | `cat /etc/systemd/system/nginx.service` | `kubectl get deployment nginx -o yaml` | Shows the full desired-state spec |
-| `top` | `kubectl top pods` | Requires Metrics Server (installed in lab below) |
+| `top` | `kubectl top pods` | Requires Metrics Server; not installed by these labs |
 | `systemctl restart nginx` | `kubectl rollout restart deployment/nginx` | Triggers a rolling restart of all Pods |
 | `systemctl list-units` | `kubectl get all` | Lists common resource types in a namespace |
 | `hostnamectl` | `kubectl get nodes -o wide` | Shows node names, IPs, OS, and kernel version |
@@ -307,15 +308,17 @@ This is a common workflow: create imperatively with dry-run to get the YAML temp
 >
 > **`kubectl exec` is not SSH.** It looks like SSH, but the Pod might be replaced at any time by a controller. Never make production changes via exec — change the manifest instead. Anything you do inside a container via exec is *ephemeral* and will be lost when the Pod is recreated.
 >
-> **`kubectl logs` shows container stdout/stderr, not system logs.** There's no `journalctl` equivalent for the cluster itself from kubectl. Kubelet logs, API server logs, and other system-level logs live on the nodes and require node-level access to inspect (or a log aggregation solution like Fluentd or Loki).
+> **`kubectl logs` shows container stdout/stderr, not all system logs.** Containerized control plane components (including Kind's API server) can be inspected with `kubectl logs -n kube-system <pod>`. Kubelet logs live in the node's journal and require node-level access (as in Chapter 3) or a log aggregation solution.
 >
-> **You never "log into a node" for normal operations.** Unlike SSH where you connect to a specific server, kubectl connects to the API server, which proxies everything. The API server is the single entry point — you interact with the cluster, not with individual machines. This is by design: nodes are cattle, not pets.
+> **You don't "log into a node" for normal application operations.** Unlike SSH, kubectl connects to the API server to manage cluster objects. For logs, exec, and port-forwarding, the API server connects to the relevant kubelet. This does not put application traffic or the kubelet's local CRI calls through the API server. Node-level maintenance and debugging can still require host access.
 
 ---
 
 ## Diagnostic Lab: Getting Comfortable with kubectl and Kind
 
 This is the hands-on chapter. Take your time with this lab — the goal is for kubectl to feel natural by the end.
+
+Use the Kind v0.31.0 and kubectl v1.35.0 tools from Chapter 1. The pinned Kubernetes v1.35.0 node image below is the teaching snapshot, not a production patch recommendation. If you already created `first-cluster` in the earlier example, reuse it and skip Step 1; don't run the same cluster creation twice.
 
 ### Step 1: Create a Multi-Node Kind Cluster
 
@@ -335,7 +338,8 @@ EOF
 Create the cluster:
 
 ```bash
-kind create cluster --name first-cluster --config kind-config.yaml
+kind create cluster --name first-cluster --config kind-config.yaml \
+  --image kindest/node:v1.35.0@sha256:452d707d4862f52530247495d180205e029056831160e22870e37e3f6c1ac31f
 ```
 
 ---
@@ -345,6 +349,10 @@ kind create cluster --name first-cluster --config kind-config.yaml
 Get familiar with what you're working with:
 
 ```bash
+# Confirm the lab target even if you reused an existing cluster
+kubectl config use-context kind-first-cluster
+kubectl config set-context --current --namespace=default
+
 # See all nodes and their details
 kubectl get nodes -o wide
 
@@ -372,6 +380,7 @@ Create a Deployment and expose it:
 ```bash
 # Create a Deployment with 3 replicas
 kubectl create deployment nginx --image=nginx:1.27 --replicas=3
+kubectl rollout status deployment/nginx --timeout=120s
 
 # Expose it as a Service
 kubectl expose deployment nginx --port=80 --type=NodePort
@@ -408,7 +417,7 @@ kubectl get deployment nginx -o yaml
 kubectl get deployment nginx -o jsonpath='{.spec.template.spec.containers[0].image}'
 ```
 
-Look at the `kubectl get pods -o wide` output. Notice how the 3 Pods are distributed across the worker nodes? That's the scheduler doing its job.
+Look at the `kubectl get pods -o wide` output. The scheduler usually spreads these Pods across the worker nodes, but this manifest does not require an even distribution. Resource availability and scheduling policies affect placement.
 
 ---
 
@@ -424,8 +433,16 @@ kubectl exec -it $(kubectl get pods -l app=nginx -o jsonpath='{.items[0].metadat
 Once inside:
 
 ```sh
-# Check the process list (you're inside a container)
-ps aux
+# Inspect nginx's main process without ps (not installed in nginx:1.27)
+cat /proc/1/comm
+cat /proc/1/status
+
+# List visible process command lines using /proc
+for proc in /proc/[0-9]*; do
+  printf '%s: ' "${proc##*/}"
+  tr '\000' ' ' < "$proc/cmdline" 2>/dev/null
+  printf '\n'
+done
 
 # Verify nginx is running
 curl -s localhost
@@ -452,15 +469,11 @@ kubectl logs -f deployment/nginx
 **Port-forward to access the Service (your SSH tunnel replacement):**
 
 ```bash
-# Forward local port 8080 to the Service's port 80
-kubectl port-forward svc/nginx 8080:80 &
-
-# Test it
-curl -s localhost:8080
-
-# Stop the port-forward
-kill %1
+# Keep this running until you see "Forwarding from 127.0.0.1:8080"
+kubectl port-forward svc/nginx 8080:80
 ```
+
+In a second terminal, run `curl -s localhost:8080`. Then press `Ctrl+C` in the first terminal to stop forwarding. This does not require a Kind port mapping or a NodePort.
 
 ---
 
@@ -500,7 +513,7 @@ You should see 5 Pods.
 kubectl diff -f nginx-deployment.yaml
 ```
 
-If there's no output (or just metadata differences like `resourceVersion`), the cluster state matches the file. This is the declarative workflow: the file is truth, and `apply` makes the cluster match.
+No output and exit status 0 mean no difference; exit status 1 means there are differences, and higher values indicate an error. Exported runtime fields such as `resourceVersion` can become stale as controllers update the object. Remove server-managed metadata and `status` before keeping an exported manifest in version control; generating a clean manifest avoids most of that cleanup.
 
 **Generate a clean manifest from scratch (the recommended approach):**
 
